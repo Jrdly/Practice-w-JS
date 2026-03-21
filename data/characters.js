@@ -1,0 +1,17 @@
+const baseCharacter = {
+	id: "balanced",
+	name: "Andreol",
+	maxHp: 120,
+	hp: 120,
+	attack: 20,
+	defense: 10,
+	damageMultiplier: 1,
+	moveBudget: 3,
+	level: 1,
+	xpCurrent: 0,
+	xpThresholds: [100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1100, 1200, 1300, 1400,
+		 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900, 3000],
+	thresholdIndex: 0,
+	unlockedAbilities: ["basic"],
+	cooldowns: { special1: 0, special2: 0, ultimate: 0 },
+};

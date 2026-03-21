@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Tile Tactics Prototype</title>
+	<link rel="stylesheet" href="style..css" />
+</head>
+<body>
+	<div id="hud">
+		<h1>Tile Tactics Prototype</h1>
+		<div id="stats"></div>
+		<div id="abilities"></div>
+		<div id="message"></div>
+	</div>
+
+	<div id="game-root"></div>
+
+	<div id="levelup-modal" class="hidden">
+		<div class="panel">
+			<h2>Level Up</h2>
+			<p id="levelup-text"></p>
+			<div class="row">
+				<button id="hp-upgrade">+10% HP | +10% DMG</button>
+				<button id="ability-upgrade">Unlock Next Ability</button>
+			</div>
+		</div>
+	</div>
+
+	<div id="controls">
+		<button id="end-turn-btn">End Turn</button>
+		<button id="undo-move-btn">Undo Move</button>
+		<button id="restart-btn">Restart Level</button>
+		<button id="clear-save-btn">Clear Save</button>
+	</div>
+
+	<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+	
+	<!-- Data files -->
+	<script src="data/characters.js"></script>
+	<script src="data/enemies.js"></script>
+	<script src="data/levels.js"></script>
+	
+	<!-- System files -->
+	<script src="systems/pathfinding.js"></script>
+	<script src="systems/combat.js"></script>
+	<script src="systems/ui.js"></script>
+	
+	<!-- Main game script -->
+	<script src="script.js"></script>
+</body>
+</html>
