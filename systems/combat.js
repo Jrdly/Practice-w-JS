@@ -152,7 +152,7 @@ function resolvePlayerAttack(enemy) {
 				if (gameState.activeScene) {
 					gameState.activeScene.requestBoardRedraw();
 				}
-				maybeShowPostMatchLevelUps();
+				showMatchResultModal("defeat");
 			}, FLOATING_DAMAGE_FADE_MS);
 			return;
 		}
@@ -170,7 +170,7 @@ function resolvePlayerAttack(enemy) {
 				if (gameState.activeScene) {
 					gameState.activeScene.drawBoard();
 				}
-				maybeShowPostMatchLevelUps();
+				showMatchResultModal("victory");
 			}, FLOATING_DAMAGE_FADE_MS);
 			return;
 		}
@@ -261,7 +261,7 @@ function runEnemyTurn() {
 			gameState.movedThisTurn = false;
 			discardPendingCombatXp();
 			setMessage("Defeat. Restart level to try again.", "danger");
-			maybeShowPostMatchLevelUps();
+			showMatchResultModal("defeat");
 		} else {
 			gameState.canAct = true;
 			gameState.selectedUnit = null;
@@ -272,6 +272,7 @@ function runEnemyTurn() {
 			gameState.abilityPinned = false;
 			gameState.turnStartPos = { ...gameState.playerPos };
 			gameState.movedThisTurn = false;
+			showTurnBanner("YOUR TURN", "#b8ffd0");
 			setMessage(totalDamage > 0 ? `Enemies dealt ${totalDamage} total damage.` : "Enemy turn ended.");
 		}
 
@@ -340,7 +341,7 @@ function runEnemyTurn() {
 							if (gameState.activeScene) {
 								gameState.activeScene.requestBoardRedraw();
 							}
-							maybeShowPostMatchLevelUps();
+							showMatchResultModal("victory");
 						}, FLOATING_DAMAGE_FADE_MS);
 						return;
 					}

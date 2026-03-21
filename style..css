@@ -1,11 +1,11 @@
 :root {
-	--bg: #10121a;
-	--panel: #1b2030;
-	--text: #e8ecf7;
-	--muted: #9bacd0;
-	--accent: #58d6ff;
-	--danger: #ff6a7a;
-	--ok: #7cff9f;
+	--bg: #2a1f18;
+	--panel: #3a2a1f;
+	--text: #f4e7d7;
+	--muted: #c9a98c;
+	--accent: #e9b16a;
+	--danger: #ff8f79;
+	--ok: #b7d98f;
 }
 
 * {
@@ -15,7 +15,7 @@
 body {
 	margin: 0;
 	font-family: "Trebuchet MS", Tahoma, sans-serif;
-	background: radial-gradient(circle at 20% 15%, #1a2746 0%, var(--bg) 55%);
+	background: radial-gradient(circle at 20% 15%, #6a4b34 0%, var(--bg) 60%);
 	color: var(--text);
 	min-height: 100vh;
 	display: grid;
@@ -27,7 +27,7 @@ body {
 #hud,
 #controls {
 	background: color-mix(in hsl, var(--panel) 92%, black 8%);
-	border: 1px solid #2c3650;
+	border: 1px solid #6c4d34;
 	border-radius: 12px;
 	padding: 12px;
 }
@@ -76,18 +76,18 @@ body {
 }
 
 .ability-dropdown {
-	background: #1f2a42;
-	border: 1px solid #35507a;
+	background: #4a3426;
+	border: 1px solid #815c3f;
 	border-radius: 8px;
 	padding: 8px 10px;
 	font-size: 0.92rem;
-	color: #c8d8f8;
+	color: #f0d9be;
 	line-height: 1.35;
 	animation: ability-dropdown-in 140ms ease-out;
 }
 
 .ability-dropdown strong {
-	color: #f2f6ff;
+	color: #fff3e3;
 }
 
 @keyframes ability-dropdown-in {
@@ -109,8 +109,8 @@ body {
 #abilities button,
 #controls button,
 #levelup-modal button {
-	background: #28395e;
-	border: 1px solid #3a4f7f;
+	background: #5a3e2b;
+	border: 1px solid #8a6241;
 	color: var(--text);
 	border-radius: 8px;
 	padding: 8px 10px;
@@ -137,8 +137,8 @@ body {
 }
 
 #game-root {
-	background: #111829;
-	border: 1px solid #2c3650;
+	background: #2a1f18;
+	border: 1px solid #6c4d34;
 	border-radius: 12px;
 	padding: 6px;
 	display: flex;
@@ -163,8 +163,8 @@ body {
 }
 
 #controls button.turn-locked:disabled {
-	background: #28395e;
-	border: 1px solid #3a4f7f;
+	background: #5a3e2b;
+	border: 1px solid #8a6241;
 	opacity: 1;
 	color: var(--text);
 	-webkit-text-fill-color: var(--text);
@@ -175,27 +175,82 @@ body {
 #levelup-modal {
 	position: fixed;
 	inset: 0;
-	background: rgba(5, 8, 14, 0.74);
+	background: rgba(28, 18, 12, 0.74);
 	display: grid;
 	place-items: center;
 	z-index: 10;
+}
+
+#result-modal {
+	position: fixed;
+	inset: 0;
+	background: rgba(28, 18, 12, 0.74);
+	display: grid;
+	place-items: center;
+	z-index: 11;
 }
 
 #levelup-modal.hidden {
 	display: none;
 }
 
+#result-modal.hidden {
+	display: none;
+}
+
 #levelup-modal .panel {
 	width: min(620px, 90vw);
-	background: #1b2030;
-	border: 1px solid #3d4c73;
+	background: #3a2a1f;
+	border: 1px solid #8a6241;
 	border-radius: 14px;
 	padding: 18px;
+	text-align: center;
+}
+
+#result-modal .panel {
+	width: min(620px, 90vw);
+	background: #3a2a1f;
+	border: 1px solid #8a6241;
+	border-radius: 14px;
+	padding: 18px;
+	text-align: center;
+}
+
+#result-title {
+	margin: 0 0 8px;
+	font-size: 2rem;
+	letter-spacing: 0.06em;
+}
+
+#result-text {
+	margin: 0 0 14px;
+	color: var(--text);
 }
 
 #levelup-modal .row {
 	display: flex;
+	justify-content: center;
 	gap: 10px;
+}
+
+#result-modal .row {
+	display: flex;
+	justify-content: center;
+	gap: 10px;
+}
+
+#result-close-btn {
+	min-width: 180px;
+	padding: 10px 16px;
+	background: linear-gradient(180deg, #7a5638 0%, #5a3e2b 100%);
+	border: 1px solid #a87953;
+	box-shadow: 0 2px 0 rgba(0, 0, 0, 0.22);
+	font-weight: 700;
+	letter-spacing: 0.02em;
+}
+
+#result-close-btn:hover {
+	filter: brightness(1.06);
 }
 
 canvas {

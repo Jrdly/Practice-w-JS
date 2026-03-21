@@ -11,6 +11,8 @@ const ENEMY_TURN_START_DELAY_MS = 1000;
 const ENEMY_MOVE_TO_ATTACK_DELAY_MS = 500;
 const ENEMY_NEXT_ACTION_DELAY_MS = 1000;
 const FLOATING_DAMAGE_FADE_MS = 650;
+const TURN_BANNER_FADE_MS = 900;
+const TURN_BANNER_DELAY_MS = 250;
 
 const ABILITY_ORDER = ["special1", "special2", "ultimate"];
 
@@ -91,6 +93,9 @@ function maybeShowPostMatchLevelUps() {
 	if (!gameState.gameOver && !gameState.victory) {
 		return;
 	}
+	if (ui.resultModal && !ui.resultModal.classList.contains("hidden")) {
+		return;
+	}
 	if (!ui.levelupModal.classList.contains("hidden")) {
 		return;
 	}
@@ -149,6 +154,64 @@ function showFloatingDamageAt(row, col, amount) {
 		ease: "Cubic.easeOut",
 		onComplete: () => damageText.destroy(),
 	});
+}
+
+function showTurnBanner(text, color = "#f2f6ff", delayMs = TURN_BANNER_DELAY_MS) {
+	const scene = gameState.activeScene;
+	if (!scene || !scene.add || !scene.tweens || gameState.gameOver || gameState.victory) {
+		return;
+	}
+
+	const drawBanner = () => {
+		if (gameState.activeScene !== scene || gameState.gameOver || gameState.victory) {
+			return;
+		}
+
+		const centerX = scene.scale.width / 2;
+		const centerY = scene.scale.height / 2;
+		const banner = scene.add.text(centerX, centerY, text, {
+			fontFamily: "Trebuchet MS, Tahoma, sans-serif",
+			fontSize: "62px",
+			fontStyle: "bold",
+			color,
+			stroke: "#0d1428",
+			strokeThickness: 8,
+			align: "center",
+		});
+		banner.setOrigin(0.5);
+		banner.setDepth(60);
+		banner.setAlpha(0);
+		banner.setData("persistFx", true);
+		if (scene.fxGroup) {
+			scene.fxGroup.add(banner);
+		}
+
+		scene.tweens.add({
+			targets: banner,
+			alpha: 1,
+			scale: 1.02,
+			duration: 170,
+			ease: "Sine.easeOut",
+			yoyo: true,
+			hold: TURN_BANNER_FADE_MS,
+			onComplete: () => {
+				scene.tweens.add({
+					targets: banner,
+					alpha: 0,
+					duration: 240,
+					ease: "Sine.easeIn",
+					onComplete: () => banner.destroy(),
+				});
+			},
+		});
+	};
+
+	if (delayMs > 0) {
+		setTimeout(drawBanner, delayMs);
+		return;
+	}
+
+	drawBanner();
 }
 
 function loadSave() {
@@ -257,6 +320,7 @@ function beginEnemyPhase(messageText, cooldownExclude = null) {
 	if (messageText) {
 		setMessage(messageText);
 	}
+	showTurnBanner("ENEMY'S TURN", "#ffb3be");
 	setTimeout(() => {
 		runEnemyTurn();
 	}, ENEMY_TURN_START_DELAY_MS);
@@ -683,6 +747,7 @@ class BattleScene extends Phaser.Scene {
 		this.bindInput();
 		renderHud();
 		setMessage("Click a blue tile to move, or choose an ability and click an enemy.");
+		showTurnBanner("YOUR TURN", "#b8ffd0", 0);
 	}
 
 	drawBoard() {
@@ -752,9 +817,9 @@ class BattleScene extends Phaser.Scene {
 				const key = tileKey(row, col);
 				const isReachable = reachable.has(key);
 				const isSelectedEnemyTile = selectedEnemy && selectedEnemy.row === row && selectedEnemy.col === col;
-				const reachableStrokeColor = gameState.movedThisTurn ? 0x9aa3b5 : 0x5fd8ff;
+				const reachableStrokeColor = gameState.movedThisTurn ? 0xb49a82 : 0xe7ad65;
 
-				const color = (row + col) % 2 === 0 ? 0x23304a : 0x1f2a42;
+				const color = (row + col) % 2 === 0 ? 0x4b3324 : 0x3f2b1f;
 				const tile = this.add.rectangle(x, y, TILE_SIZE, TILE_SIZE, color).setOrigin(0);
 				tile.setData("layerTag", "board");
 				if (this.boardGroup) {
@@ -806,7 +871,7 @@ class BattleScene extends Phaser.Scene {
 			}
 		}
 
-		gridLines.lineStyle(1, 0x3a4a6e, 0.6);
+		gridLines.lineStyle(1, 0x8b6445, 0.6);
 		for (let row = 0; row <= GRID_ROWS; row += 1) {
 			const y = GRID_Y + row * TILE_SIZE + 0.5;
 			gridLines.lineBetween(GRID_X + 0.5, y, GRID_X + GRID_COLS * TILE_SIZE + 0.5, y);
@@ -870,49 +935,53 @@ class BattleScene extends Phaser.Scene {
 			this.enemySprites.push({ id: enemy.id, sprite });
 		}
 
-		const px = GRID_X + gameState.playerPos.col * TILE_SIZE + TILE_SIZE / 2;
-		const py = GRID_Y + gameState.playerPos.row * TILE_SIZE + TILE_SIZE / 2;
-		this.playerSprite = this.add.circle(px, py, TILE_SIZE * 0.30, 0x5de4a7);
-		this.playerSprite.setData("layerTag", "unit");
-		if (this.unitGroup && this.playerSprite) {
-			this.unitGroup.add(this.playerSprite);
+		if (gameState.player.hp > 0) {
+			const px = GRID_X + gameState.playerPos.col * TILE_SIZE + TILE_SIZE / 2;
+			const py = GRID_Y + gameState.playerPos.row * TILE_SIZE + TILE_SIZE / 2;
+			this.playerSprite = this.add.circle(px, py, TILE_SIZE * 0.30, 0x5de4a7);
+			this.playerSprite.setData("layerTag", "unit");
+			if (this.unitGroup && this.playerSprite) {
+				this.unitGroup.add(this.playerSprite);
+			}
+			this.playerSprite.setStrokeStyle(2, 0x0f1020, 1);
+			this.playerSprite.setInteractive();
+			this.playerSprite.on("pointerover", () => {
+				if (!gameState.canAct) {
+					return;
+				}
+				if (gameState.hoveredEntity.kind === "player" && gameState.hoveredEntity.id === "player") {
+					return;
+				}
+				gameState.hoveredEntity = { kind: "player", id: "player" };
+				renderHud();
+				this.drawAttackHints();
+			});
+			this.playerSprite.on("pointerout", () => {
+				if (!gameState.canAct) {
+					return;
+				}
+				if (gameState.hoveredEntity.kind !== "player") {
+					return;
+				}
+				gameState.hoveredEntity = { kind: null, id: null };
+				renderHud();
+				this.drawAttackHints();
+			});
+			this.playerSprite.on("pointerdown", () => {
+				if (!gameState.canAct || gameState.gameOver || gameState.victory || this.isMovementAnimating) {
+					return;
+				}
+				gameState.selectedEnemyId = null;
+				gameState.selectedEnemyAbility = null;
+				gameState.enemyAbilityPinned = false;
+				gameState.openedEnemyAbilityInfo = null;
+				gameState.selectedUnit = gameState.selectedUnit === "player" ? null : "player";
+				renderHud();
+				this.requestBoardRedraw();
+			});
+		} else {
+			this.playerSprite = null;
 		}
-		this.playerSprite.setStrokeStyle(2, 0x0f1020, 1);
-		this.playerSprite.setInteractive();
-		this.playerSprite.on("pointerover", () => {
-			if (!gameState.canAct) {
-				return;
-			}
-			if (gameState.hoveredEntity.kind === "player" && gameState.hoveredEntity.id === "player") {
-				return;
-			}
-			gameState.hoveredEntity = { kind: "player", id: "player" };
-			renderHud();
-			this.drawAttackHints();
-		});
-		this.playerSprite.on("pointerout", () => {
-			if (!gameState.canAct) {
-				return;
-			}
-			if (gameState.hoveredEntity.kind !== "player") {
-				return;
-			}
-			gameState.hoveredEntity = { kind: null, id: null };
-			renderHud();
-			this.drawAttackHints();
-		});
-		this.playerSprite.on("pointerdown", () => {
-			if (!gameState.canAct || gameState.gameOver || gameState.victory || this.isMovementAnimating) {
-				return;
-			}
-			gameState.selectedEnemyId = null;
-			gameState.selectedEnemyAbility = null;
-			gameState.enemyAbilityPinned = false;
-			gameState.openedEnemyAbilityInfo = null;
-			gameState.selectedUnit = gameState.selectedUnit === "player" ? null : "player";
-			renderHud();
-			this.requestBoardRedraw();
-		});
 
 		this.drawAttackHints();
 
@@ -946,9 +1015,9 @@ class BattleScene extends Phaser.Scene {
 			for (const tile of moveTiles) {
 				const x = GRID_X + tile.col * TILE_SIZE;
 				const y = GRID_Y + tile.row * TILE_SIZE;
-				const marker = this.add.rectangle(x, y, TILE_SIZE - 12, TILE_SIZE - 12, 0x70b7ff, 0.14).setOrigin(0);
+				const marker = this.add.rectangle(x, y, TILE_SIZE - 12, TILE_SIZE - 12, 0xd39a56, 0.14).setOrigin(0);
 				marker.setData("layerTag", "hint");
-				marker.setStrokeStyle(1, 0x70b7ff, 0.85);
+				marker.setStrokeStyle(1, 0xd39a56, 0.85);
 				this.rangeHintGroup.add(marker);
 			}
 
@@ -1027,7 +1096,7 @@ class BattleScene extends Phaser.Scene {
 				const y = GRID_Y + row * TILE_SIZE;
 				const marker = this.add.rectangle(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8, 0x000000, 0).setOrigin(0);
 				marker.setData("layerTag", "hint");
-				marker.setStrokeStyle(1, 0x5fd8ff, 1);
+				marker.setStrokeStyle(1, 0xe7ad65, 1);
 				this.rangeHintGroup.add(marker);
 			}
 		}
@@ -1092,7 +1161,7 @@ const config = {
 	parent: "game-root",
 	width: GRID_X * 2 + GRID_COLS * TILE_SIZE,
 	height: GRID_Y * 2 + GRID_ROWS * TILE_SIZE,
-	backgroundColor: "#121a2d",
+	backgroundColor: "#2a1f18",
 	scene: [BattleScene],
 };
 

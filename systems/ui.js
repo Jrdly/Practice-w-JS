@@ -6,6 +6,10 @@ const ui = {
 	levelupText: document.getElementById("levelup-text"),
 	hpUpgrade: document.getElementById("hp-upgrade"),
 	abilityUpgrade: document.getElementById("ability-upgrade"),
+	resultModal: document.getElementById("result-modal"),
+	resultTitle: document.getElementById("result-title"),
+	resultText: document.getElementById("result-text"),
+	resultClose: document.getElementById("result-close-btn"),
 	endTurn: document.getElementById("end-turn-btn"),
 	undoMove: document.getElementById("undo-move-btn"),
 	restart: document.getElementById("restart-btn"),
@@ -112,7 +116,7 @@ function setMessage(text, tone = "neutral") {
 	} else if (tone === "ok") {
 		ui.message.style.color = "#9cffbf";
 	} else {
-		ui.message.style.color = "#9bacd0";
+		ui.message.style.color = "var(--muted)";
 	}
 }
 
@@ -138,6 +142,54 @@ function getDisplayedPlayerAbilityDamage(basePower) {
 function applyTurnLockedControlVisuals() {
 	ui.endTurn.classList.remove("turn-locked");
 	ui.undoMove.classList.remove("turn-locked");
+}
+
+function getCurrentXpLabel() {
+	const p = gameState.player;
+	const nextThreshold = p.thresholdIndex < p.xpThresholds.length ? p.xpThresholds[p.thresholdIndex] : "MAX";
+	return `${p.xpCurrent} / ${nextThreshold}`;
+}
+
+function showMatchResultModal(outcome) {
+	if (!ui.resultModal) {
+		return;
+	}
+	if (outcome === "defeat") {
+		ui.resultTitle.textContent = "DEFEATED";
+		ui.resultTitle.style.color = "#ffb4a5";
+		ui.resultText.textContent = `XP so far: ${getCurrentXpLabel()}`;
+		ui.resultClose.textContent = "Restart";
+	} else {
+		ui.resultTitle.textContent = "VICTORY";
+		ui.resultTitle.style.color = "#b7d98f";
+		ui.resultText.textContent = `XP so far: ${getCurrentXpLabel()}`;
+		ui.resultClose.textContent = "Continue";
+	}
+	ui.resultModal.classList.remove("hidden");
+}
+
+function restartLevelFromHudAction() {
+	if (ui.resultModal) {
+		ui.resultModal.classList.add("hidden");
+	}
+	if (gameState.activeScene) {
+		gameState.activeScene.cleanupBeforeRestart();
+	}
+	restartCurrentLevel();
+	if (gameState.activeScene) {
+		gameState.activeScene.scene.restart();
+	}
+	setMessage("Level restarted with full HP.", "ok");
+}
+
+function closeMatchResultModal() {
+	if (!ui.resultModal) {
+		return;
+	}
+	ui.resultModal.classList.add("hidden");
+	if (gameState.victory && gameState.pendingLevelUps > 0) {
+		maybeShowPostMatchLevelUps();
+	}
 }
 
 function renderHud() {
@@ -384,14 +436,7 @@ ui.abilityUpgrade.addEventListener("click", () => {
 });
 
 ui.restart.addEventListener("click", () => {
-	if (gameState.activeScene) {
-		gameState.activeScene.cleanupBeforeRestart();
-	}
-	restartCurrentLevel();
-	if (gameState.activeScene) {
-		gameState.activeScene.scene.restart();
-	}
-	setMessage("Level restarted with full HP.", "ok");
+	restartLevelFromHudAction();
 });
 
 ui.clearSave.addEventListener("click", () => {
@@ -407,6 +452,14 @@ ui.clearSave.addEventListener("click", () => {
 		gameState.activeScene.scene.restart();
 	}
 	setMessage("Save cleared and fresh run started.", "ok");
+});
+
+ui.resultClose.addEventListener("click", () => {
+	if (gameState.gameOver) {
+		restartLevelFromHudAction();
+		return;
+	}
+	closeMatchResultModal();
 });
 
 ui.endTurn.addEventListener("click", () => {
