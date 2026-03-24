@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap');
+
 :root {
 	--bg: #2a1f18;
 	--panel: #3a2a1f;
@@ -6,6 +8,8 @@
 	--accent: #e9b16a;
 	--danger: #ff8f79;
 	--ok: #b7d98f;
+	--game-font: "Space Mono", "Courier New", monospace;
+	--header-font: "Press Start 2P", cursive;
 }
 
 * {
@@ -14,17 +18,18 @@
 
 body {
 	margin: 0;
-	font-family: "Trebuchet MS", Tahoma, sans-serif;
+	font-family: var(--game-font);
 	background: radial-gradient(circle at 20% 15%, #6a4b34 0%, var(--bg) 60%);
 	color: var(--text);
 	min-height: 100vh;
 	display: grid;
-	grid-template-columns: 320px 1fr;
+	grid-template-columns: 300px 1fr 300px;
 	gap: 14px;
 	padding: 14px;
+	font-size: 14px;
 }
 
-#hud,
+.hud-panel,
 #controls {
 	background: color-mix(in hsl, var(--panel) 92%, black 8%);
 	border: 1px solid #6c4d34;
@@ -32,19 +37,138 @@ body {
 	padding: 12px;
 }
 
-#hud h1 {
+.hud-panel h1 {
 	margin: 0 0 8px;
-	font-size: 1.2rem;
+	font-size: 1.3rem;
+	font-family: var(--header-font);
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	color: var(--accent);
+	text-shadow: 0 0 8px rgba(233, 177, 106, 0.3);
 }
 
-#stats,
-#abilities,
+h2 {
+	margin: 0 0 12px;
+	font-size: 1.45rem;
+	font-family: var(--header-font);
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	color: var(--accent);
+	text-shadow: 0 0 10px rgba(233, 177, 106, 0.35);
+}
+
+#player-stats,
+#enemy-stats,
+.abilities-panel,
 #message {
 	margin-top: 10px;
-	line-height: 1.45;
+	line-height: 1.5;
+	font-size: 0.95rem;
 }
 
-#abilities {
+.hp-bar-wrap {
+	position: relative;
+	height: 24px;
+	border-radius: 999px;
+	border: 1px solid #5f7a3a;
+	background: #2f3a22;
+	overflow: hidden;
+	margin: 4px 0;
+}
+
+.hp-bar-fill {
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	background: linear-gradient(180deg, #8cd152 0%, #5fa237 100%);
+	transition: width 200ms ease;
+}
+
+.hp-bar-label {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	font-weight: 700;
+	font-size: 0.95rem;
+	color: #f3ffe7;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+	pointer-events: none;
+}
+
+.xp-bar-wrap {
+	position: relative;
+	height: 22px;
+	border-radius: 999px;
+	border: 1px solid #3f6f9f;
+	background: #1f2f43;
+	overflow: hidden;
+	margin: 4px 0;
+}
+
+.xp-bar-fill {
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	background: linear-gradient(180deg, #73bbff 0%, #3b82d1 100%);
+}
+
+.xp-bar-label {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	font-weight: 700;
+	font-size: 0.92rem;
+	color: #e7f2ff;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+	pointer-events: none;
+}
+
+.def-meter {
+	margin: 4px 0;
+}
+
+.def-shields {
+	display: grid;
+	grid-template-columns: repeat(10, minmax(0, 1fr));
+	gap: 5px;
+}
+
+.def-shield {
+	display: block;
+	width: 100%;
+	height: 22px;
+	overflow: visible;
+}
+
+.def-shield-base {
+	fill: #05080c;
+}
+
+.def-shield-fill {
+	fill: #83c9ff;
+}
+
+.def-shield-outline {
+	fill: none;
+	stroke: #354150;
+	stroke-width: 4;
+	vector-effect: non-scaling-stroke;
+}
+
+.def-meter-label {
+	margin-top: 4px;
+	font-size: 0.88rem;
+	font-weight: 700;
+	color: #d6e8ff;
+	text-align: center;
+	letter-spacing: 0.02em;
+}
+
+.abilities-panel {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -62,12 +186,12 @@ body {
 	gap: 6px;
 }
 
-#abilities .ability-main {
+.abilities-panel .ability-main {
 	flex: 1;
 	width: auto;
 }
 
-#abilities .ability-toggle {
+.abilities-panel .ability-toggle {
 	width: 36px;
 	min-width: 36px;
 	padding: 8px 0;
@@ -80,9 +204,9 @@ body {
 	border: 1px solid #815c3f;
 	border-radius: 8px;
 	padding: 8px 10px;
-	font-size: 0.92rem;
+	font-size: 0.98rem;
 	color: #f0d9be;
-	line-height: 1.35;
+	line-height: 1.4;
 	animation: ability-dropdown-in 140ms ease-out;
 }
 
@@ -106,7 +230,12 @@ body {
 	min-height: 48px;
 }
 
-#abilities button,
+#levelup-text {
+	font-size: 1rem;
+	line-height: 1.5;
+}
+
+.abilities-panel button,
 #controls button,
 #levelup-modal button {
 	background: #5a3e2b;
@@ -115,25 +244,46 @@ body {
 	border-radius: 8px;
 	padding: 8px 10px;
 	cursor: pointer;
+	font-size: 0.95rem;
+	font-family: var(--game-font);
+	font-weight: 700;
 }
 
-#abilities .ability-main,
-#abilities .ability-toggle {
+.abilities-panel .ability-main,
+.abilities-panel .ability-toggle {
 	margin: 0;
 }
 
-#abilities .ability-main {
+.abilities-panel .ability-main {
 	text-align: left;
 }
 
-#abilities button.active {
+.abilities-panel button.active {
 	outline: 2px solid var(--accent);
 }
 
-#abilities button:disabled,
+.abilities-panel button:disabled,
 #levelup-modal button:disabled {
 	opacity: 0.45;
 	cursor: not-allowed;
+}
+
+.ability-cooldown {
+	display: inline-flex;
+	width: 20px;
+	height: 20px;
+	margin-left: 4px;
+	margin-right: -2px;
+	padding: 2px;
+	background: radial-gradient(circle, rgba(255, 140, 140, 0.2) 0%, rgba(255, 100, 100, 0.1) 100%);
+	border: 1.5px solid #ff6464;
+	border-radius: 50%;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.78rem;
+	font-weight: 700;
+	color: #ff8e8e;
+	text-shadow: 0 0 4px rgba(255, 100, 100, 0.4);
 }
 
 #game-root {
@@ -147,7 +297,7 @@ body {
 }
 
 #controls {
-	grid-column: 1;
+	grid-column: 1 / -1;
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
@@ -218,13 +368,18 @@ body {
 
 #result-title {
 	margin: 0 0 8px;
-	font-size: 2rem;
-	letter-spacing: 0.06em;
+	font-size: 2.2rem;
+	letter-spacing: 0.08em;
+	font-family: var(--header-font);
+	color: var(--accent);
+	text-shadow: 0 0 12px rgba(233, 177, 106, 0.4);
 }
 
 #result-text {
 	margin: 0 0 14px;
 	color: var(--text);
+	font-size: 1rem;
+	line-height: 1.5;
 }
 
 #levelup-modal .row {
@@ -247,6 +402,8 @@ body {
 	box-shadow: 0 2px 0 rgba(0, 0, 0, 0.22);
 	font-weight: 700;
 	letter-spacing: 0.02em;
+	font-size: 0.98rem;
+	font-family: var(--game-font);
 }
 
 #result-close-btn:hover {

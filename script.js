@@ -16,10 +16,83 @@ const TURN_BANNER_DELAY_MS = 250;
 
 const ABILITY_ORDER = ["special1", "special2", "ultimate"];
 
+const dataValidationState = {
+	hasValidated: false,
+};
+
+const attackAudioState = {
+	ctx: null,
+};
+
+function ensureAttackAudioReady() {
+	if (attackAudioState.ctx) {
+		if (attackAudioState.ctx.state === "suspended") {
+			attackAudioState.ctx.resume().catch(() => {});
+		}
+		return attackAudioState.ctx;
+	}
+
+	const AudioCtx = window.AudioContext || window.webkitAudioContext;
+	if (!AudioCtx) {
+		return null;
+	}
+
+	attackAudioState.ctx = new AudioCtx();
+	if (attackAudioState.ctx.state === "suspended") {
+		attackAudioState.ctx.resume().catch(() => {});
+	}
+	return attackAudioState.ctx;
+}
+
+function playAttackSfx(attacker = "player") {
+	const ctx = ensureAttackAudioReady();
+	if (!ctx || ctx.state !== "running") {
+		return;
+	}
+
+	const now = ctx.currentTime;
+	const isEnemy = attacker === "enemy";
+	const baseFreq = isEnemy ? 160 : 210;
+	const sweepTo = isEnemy ? 110 : 145;
+	const sustain = 0.09;
+
+	const osc = ctx.createOscillator();
+	const osc2 = ctx.createOscillator();
+	const gain = ctx.createGain();
+	const filter = ctx.createBiquadFilter();
+
+	osc.type = isEnemy ? "square" : "sawtooth";
+	osc2.type = "triangle";
+	osc.frequency.setValueAtTime(baseFreq, now);
+	osc.frequency.exponentialRampToValueAtTime(sweepTo, now + sustain);
+	osc2.frequency.setValueAtTime(baseFreq * 1.5, now);
+	osc2.frequency.exponentialRampToValueAtTime(sweepTo * 1.8, now + sustain * 0.8);
+
+	filter.type = "lowpass";
+	filter.frequency.setValueAtTime(isEnemy ? 1200 : 1700, now);
+	filter.frequency.exponentialRampToValueAtTime(isEnemy ? 700 : 900, now + sustain);
+
+	gain.gain.setValueAtTime(0.0001, now);
+	gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+	gain.gain.exponentialRampToValueAtTime(0.0001, now + sustain + 0.03);
+
+	osc.connect(filter);
+	osc2.connect(filter);
+	filter.connect(gain);
+	gain.connect(ctx.destination);
+
+	osc.start(now);
+	osc2.start(now);
+	osc.stop(now + sustain + 0.04);
+	osc2.stop(now + sustain + 0.04);
+}
+
 // Game State - initialized after data files loaded
 const gameState = {
 	player: null,
+	playerCharacterId: "leon",
 	enemies: [],
+	currentLevelId: typeof defaultLevelId === "string" ? defaultLevelId : "level_1",
 	selectedAbility: "basic",
 	abilityPinned: false,
 	hoveredAbility: null,
@@ -36,6 +109,12 @@ const gameState = {
 	canAct: true,
 	pendingLevelUps: 0,
 	pendingCombatXp: 0,
+	playerStatus: {
+		evadeTurns: 0,
+		tauntTurns: 0,
+	},
+	enemyDebuffsById: {},
+	fireZones: [],
 	gameOver: false,
 	victory: false,
 	activeScene: null,
@@ -56,17 +135,184 @@ function getNextUnlock(player) {
 	return null;
 }
 
+function getConfiguredAbilityCooldownTurns(player, abilityKey) {
+	const configured = player?.abilityCooldownTurns?.[abilityKey];
+	if (typeof configured === "number" && Number.isFinite(configured)) {
+		return Math.max(0, Math.floor(configured));
+	}
+	const defaultTurns = abilityDefs?.[abilityKey]?.cooldownTurns || 0;
+	return Math.max(0, Math.floor(defaultTurns));
+}
+
+function getConfiguredAbilityPower(player, abilityKey) {
+	const configured = player?.abilityBasePowers?.[abilityKey];
+	if (typeof configured === "number" && Number.isFinite(configured)) {
+		return Math.max(0, Math.floor(configured));
+	}
+	const defaultPower = abilityDefs?.[abilityKey]?.power || 0;
+	return Math.max(0, Math.floor(defaultPower));
+}
+
+function getEnemyAbilityDefByType(typeKey, abilityKey) {
+	const type = enemyTypes?.[typeKey];
+	const def = type?.abilityDefs?.[abilityKey];
+	if (def) {
+		return def;
+	}
+	if (typeof enemyAbilityDefs !== "undefined" && enemyAbilityDefs?.[abilityKey]) {
+		return enemyAbilityDefs[abilityKey];
+	}
+	return null;
+}
+
+function getEnemyAbilityDef(enemyOrType, abilityKey) {
+	if (!enemyOrType) {
+		return null;
+	}
+	if (typeof enemyOrType !== "string" && enemyOrType.abilityDefs?.[abilityKey]) {
+		return enemyOrType.abilityDefs[abilityKey];
+	}
+	const typeKey = typeof enemyOrType === "string" ? enemyOrType : enemyOrType.type;
+	return getEnemyAbilityDefByType(typeKey, abilityKey);
+}
+
+function warnData(message, payload) {
+	if (typeof console === "undefined" || typeof console.warn !== "function") {
+		return;
+	}
+	if (typeof payload === "undefined") {
+		console.warn(`[Data Warning] ${message}`);
+		return;
+	}
+	console.warn(`[Data Warning] ${message}`, payload);
+}
+
+function isKnownEnemyColor(colorValue) {
+	if (typeof colorValue === "number" && Number.isFinite(colorValue)) {
+		return true;
+	}
+	if (typeof colorValue !== "string") {
+		return false;
+	}
+	if (typeof namedEnemyColors === "undefined") {
+		return false;
+	}
+	return Boolean(namedEnemyColors[colorValue.trim().toLowerCase()]);
+}
+
+function validateCharacterData() {
+	if (typeof characterTemplates === "undefined") {
+		return;
+	}
+
+	for (const [characterId, template] of Object.entries(characterTemplates)) {
+		if (!template || typeof template !== "object") {
+			warnData(`Character template '${characterId}' is not a valid object.`);
+			continue;
+		}
+
+		for (const abilityKey of template.unlockedAbilities || []) {
+			if (!abilityDefs[abilityKey]) {
+				warnData(`Character '${characterId}' has unknown unlocked ability '${abilityKey}'.`);
+			}
+		}
+
+		for (const abilityKey of Object.keys(template.abilityBasePowers || {})) {
+			if (!abilityDefs[abilityKey]) {
+				warnData(`Character '${characterId}' has abilityBasePowers entry for unknown ability '${abilityKey}'.`);
+			}
+		}
+
+		for (const abilityKey of Object.keys(template.abilityCooldownTurns || {})) {
+			if (!abilityDefs[abilityKey]) {
+				warnData(`Character '${characterId}' has abilityCooldownTurns entry for unknown ability '${abilityKey}'.`);
+			}
+		}
+	}
+}
+
+function validateEnemyData() {
+	for (const [typeKey, typeDef] of Object.entries(enemyTypes || {})) {
+		if (!typeDef || typeof typeDef !== "object") {
+			warnData(`Enemy type '${typeKey}' is not a valid object.`);
+			continue;
+		}
+
+		if (!isKnownEnemyColor(typeDef.color)) {
+			warnData(`Enemy type '${typeKey}' uses unknown color '${String(typeDef.color)}'.`);
+		}
+
+		for (const abilityKey of typeDef.abilities || []) {
+			const def = getEnemyAbilityDefByType(typeKey, abilityKey);
+			if (!def) {
+				warnData(`Enemy type '${typeKey}' references missing ability '${abilityKey}'.`);
+			}
+		}
+	}
+}
+
+function validateLevelData() {
+	const levels = typeof levelsById !== "undefined" ? levelsById : { level_1: level1 };
+	for (const [levelId, levelDef] of Object.entries(levels || {})) {
+		if (!levelDef || typeof levelDef !== "object") {
+			warnData(`Level '${levelId}' is not a valid object.`);
+			continue;
+		}
+
+		if (Array.isArray(levelDef.playerCharacterIds) && !levelDef.playerCharacterIds.includes("all")) {
+			for (const characterId of levelDef.playerCharacterIds) {
+				if (!playableCharacterIds.includes(characterId)) {
+					warnData(`Level '${levelId}' includes unknown player character id '${characterId}'.`);
+				}
+			}
+		}
+
+		for (const enemy of levelDef.enemies || []) {
+			if (!enemyTypes?.[enemy.type]) {
+				warnData(`Level '${levelId}' has enemy with unknown type '${enemy.type}'.`, enemy);
+				continue;
+			}
+
+			const typeDef = enemyTypes[enemy.type];
+			const abilityKeys = Array.isArray(enemy.abilities) && enemy.abilities.length > 0
+				? enemy.abilities
+				: (typeDef.abilities || []);
+
+			for (const abilityKey of abilityKeys) {
+				const def = enemy.abilityDefs?.[abilityKey] || getEnemyAbilityDefByType(enemy.type, abilityKey);
+				if (!def) {
+					warnData(`Level '${levelId}' enemy '${enemy.type}' references missing ability '${abilityKey}'.`, enemy);
+				}
+			}
+
+			const colorValue = enemy.color ?? typeDef.color;
+			if (!isKnownEnemyColor(colorValue)) {
+				warnData(`Level '${levelId}' enemy '${enemy.type}' uses unknown color '${String(colorValue)}'.`, enemy);
+			}
+		}
+	}
+}
+
+function validateGameDataOnce() {
+	if (dataValidationState.hasValidated) {
+		return;
+	}
+	dataValidationState.hasValidated = true;
+	validateCharacterData();
+	validateEnemyData();
+	validateLevelData();
+}
+
 function getStartingCooldownsForUnlockedAbilities(player) {
 	const cooldowns = { special1: 0, special2: 0, ultimate: 0 };
 	for (const abilityKey of player.unlockedAbilities || []) {
 		if (abilityKey === "basic") {
 			continue;
 		}
-		const def = abilityDefs[abilityKey];
-		if (!def) {
+		if (!abilityDefs[abilityKey]) {
 			continue;
 		}
-		cooldowns[abilityKey] = def.cooldownTurns || 0;
+		cooldowns[abilityKey] = getConfiguredAbilityCooldownTurns(player, abilityKey);
 	}
 	return cooldowns;
 }
@@ -237,6 +483,7 @@ function saveGame() {
 
 	const payload = {
 		version: 1,
+		playerCharacterId: gameState.playerCharacterId,
 		player: {
 			...gameState.player,
 			hp: Math.max(1, Math.floor(gameState.player.hp)),
@@ -258,7 +505,7 @@ function applyAbilityCooldown(abilityKey) {
 	if (abilityKey === "basic") {
 		return;
 	}
-	const turns = abilityDefs[abilityKey].cooldownTurns;
+	const turns = getConfiguredAbilityCooldownTurns(gameState.player, abilityKey);
 	gameState.player.cooldowns[abilityKey] = turns;
 }
 
@@ -308,10 +555,6 @@ function beginEnemyPhase(messageText, cooldownExclude = null) {
 	decrementCooldowns(cooldownExclude);
 	gameState.canAct = false;
 	gameState.selectedUnit = null;
-	gameState.selectedEnemyId = null;
-	gameState.selectedEnemyAbility = null;
-	gameState.enemyAbilityPinned = false;
-	gameState.openedEnemyAbilityInfo = null;
 	gameState.hoveredEntity = { kind: null, id: null };
 	gameState.hoveredAbility = null;
 	gameState.abilityPinned = false;
@@ -365,6 +608,9 @@ function getActivePlayerAbilityPreviewKey() {
 function getPlayerAbilityRangeBand(abilityKey) {
 	const def = abilityDefs[abilityKey];
 	if (!def) {
+		return null;
+	}
+	if (def.rangeType === "self") {
 		return null;
 	}
 	if (def.rangeType === "melee") {
@@ -475,30 +721,83 @@ function collectAttackTiles(origins, range) {
 	});
 }
 
+function resolveEnemyColor(value) {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+
+	if (typeof value !== "string") {
+		return 0xff7777;
+	}
+
+	const key = value.trim().toLowerCase();
+	if (typeof namedEnemyColors !== "undefined" && namedEnemyColors?.[key]) {
+		return namedEnemyColors[key];
+	}
+	return 0xff7777;
+}
+
+function getCurrentLevelDefinition() {
+	if (typeof levelsById !== "undefined" && levelsById?.[gameState.currentLevelId]) {
+		return levelsById[gameState.currentLevelId];
+	}
+	if (typeof level1 !== "undefined") {
+		return level1;
+	}
+	return { id: "level_1", name: "Level 1", enemies: [] };
+}
+
+function getPlayableCharacterIdsForLevel(levelDef) {
+	const ids = levelDef?.playerCharacterIds;
+	if (!Array.isArray(ids) || ids.length === 0) {
+		return [...playableCharacterIds];
+	}
+	if (ids.includes("all")) {
+		return [...playableCharacterIds];
+	}
+	const validIds = ids.filter((id) => playableCharacterIds.includes(id));
+	return validIds.length > 0 ? validIds : [...playableCharacterIds];
+}
+
+function getDefaultCharacterIdForCurrentLevel() {
+	const levelDef = getCurrentLevelDefinition();
+	const ids = getPlayableCharacterIdsForLevel(levelDef);
+	return ids[0] || "leon";
+}
+
 function buildLevelEnemies() {
-	return level1.enemies.map((e, index) => {
+	const levelDef = getCurrentLevelDefinition();
+	return (levelDef.enemies || []).map((e, index) => {
 		const type = enemyTypes[e.type];
+		if (!type) {
+			return null;
+		}
+		const enemyAbilityOverrides = e.abilityDefs && typeof e.abilityDefs === "object"
+			? e.abilityDefs
+			: null;
 		const abilities = Array.isArray(e.abilities) && e.abilities.length > 0
 			? [...e.abilities]
 			: [...(type.abilities || [])];
-		const primaryAbility = enemyAbilityDefs[abilities[0]];
+		const primaryAbility = enemyAbilityOverrides?.[abilities[0]] || getEnemyAbilityDefByType(e.type, abilities[0]);
+		const maxHp = e.maxHp ?? type.maxHp;
 		return {
-			id: `enemy_${index}`,
+			id: e.id || `enemy_${index}`,
 			type: e.type,
+			name: e.name || type.name,
 			row: e.row,
 			col: e.col,
-			hp: type.maxHp,
-			maxHp: type.maxHp,
-			attack: type.attack,
-			defense: type.defense,
-			moveBudget: type.moveBudget || 1,
-			range: primaryAbility ? (primaryAbility.maxRange || primaryAbility.range) : type.range,
-			killXp: type.killXp,
-			color: type.color,
+			hp: e.hp ?? maxHp,
+			maxHp,
+			defense: e.defense ?? type.defense,
+			moveBudget: e.moveBudget ?? (type.moveBudget || 1),
+			range: e.range ?? (primaryAbility ? (primaryAbility.maxRange || primaryAbility.range) : type.range),
+			killXp: e.killXp ?? type.killXp,
+			color: resolveEnemyColor(e.color ?? type.color),
 			abilities,
+			abilityDefs: enemyAbilityOverrides,
 			alive: true,
 		};
-	});
+	}).filter(Boolean);
 }
 
 function resetLevelState({ healToFull }) {
@@ -523,6 +822,9 @@ function resetLevelState({ healToFull }) {
 	gameState.canAct = true;
 	gameState.pendingLevelUps = 0;
 	gameState.pendingCombatXp = 0;
+	gameState.playerStatus = { evadeTurns: 0, tauntTurns: 0 };
+	gameState.enemyDebuffsById = {};
+	gameState.fireZones = [];
 	gameState.gameOver = false;
 	gameState.victory = false;
 }
@@ -535,10 +837,26 @@ function restartCurrentLevel() {
 
 function setupNewRun(forceFresh) {
 	const loaded = !forceFresh ? loadSave() : null;
-	gameState.player = loaded?.player ? loaded.player : deepClone(baseCharacter);
+	const defaultCharacterId = getDefaultCharacterIdForCurrentLevel();
+	const levelPlayableIds = getPlayableCharacterIdsForLevel(getCurrentLevelDefinition());
+	const loadedCharacterId = loaded?.playerCharacterId;
+	const canUseLoadedCharacter =
+		!forceFresh
+		&& loaded?.player
+		&& typeof loadedCharacterId === "string"
+		&& levelPlayableIds.includes(loadedCharacterId);
+
+	if (canUseLoadedCharacter) {
+		gameState.player = loaded.player;
+		gameState.playerCharacterId = loadedCharacterId;
+	} else {
+		gameState.playerCharacterId = defaultCharacterId;
+		gameState.player = deepClone(getCharacterTemplateById(defaultCharacterId));
+	}
 	if (typeof gameState.player.damageMultiplier !== "number" || Number.isNaN(gameState.player.damageMultiplier)) {
 		gameState.player.damageMultiplier = 1;
 	}
+	validateGameDataOnce();
 	resetLevelState({ healToFull: false });
 }
 
@@ -625,7 +943,7 @@ class BattleScene extends Phaser.Scene {
 		return true;
 	}
 
-	setAbilityHoverPulse(row, col, shouldShow) {
+	setAbilityHoverPulse(row, col, shouldShow, damage) {
 		if (!shouldShow) {
 			this.abilityHoverPulseKey = null;
 			if (!this.abilityHoverPulseDot) {
@@ -658,10 +976,23 @@ class BattleScene extends Phaser.Scene {
 		const cy = GRID_Y + row * TILE_SIZE + TILE_SIZE / 2;
 
 		if (!this.abilityHoverPulseDot) {
-			this.abilityHoverPulseDot = this.add.circle(cx, cy, 5, 0xff6464, 1);
+			const displayDamage = damage ? Math.floor(damage) : null;
+			if (displayDamage) {
+				this.abilityHoverPulseDot = this.add.text(cx, cy, `-${displayDamage}`, {
+					fontFamily: "Trebuchet MS, Tahoma, sans-serif",
+					fontSize: "24px",
+					fontStyle: "bold",
+					color: "#ffb34a",
+					stroke: "#4a2200",
+					strokeThickness: 2,
+				});
+			} else {
+				this.abilityHoverPulseDot = this.add.circle(cx, cy, 5, 0xff6464, 1);
+				this.abilityHoverPulseDot.setStrokeStyle(1, 0x350000, 0.9);
+			}
 			this.abilityHoverPulseDot.setData("persistFx", true);
+			this.abilityHoverPulseDot.setOrigin(0.5);
 			this.abilityHoverPulseDot.setDepth(26);
-			this.abilityHoverPulseDot.setStrokeStyle(1, 0x350000, 0.9);
 			this.abilityHoverPulseDot.setScale(1);
 			if (this.fxGroup) {
 				this.fxGroup.add(this.abilityHoverPulseDot);
@@ -674,20 +1005,6 @@ class BattleScene extends Phaser.Scene {
 		if (this.abilityHoverPulseTween) {
 			this.abilityHoverPulseTween.stop();
 			this.abilityHoverPulseTween = null;
-		}
-
-		if (this.abilityHoverPulseKey !== key) {
-			this.abilityHoverPulseTween = this.tweens.add({
-				targets: this.abilityHoverPulseDot,
-				scale: 1.8,
-				duration: 170,
-				ease: "Sine.easeOut",
-				onComplete: () => {
-					this.abilityHoverPulseTween = null;
-				},
-			});
-		} else {
-			this.abilityHoverPulseDot.setScale(1.8);
 		}
 
 		this.abilityHoverPulseKey = key;
@@ -731,6 +1048,7 @@ class BattleScene extends Phaser.Scene {
 
 	create() {
 		gameState.activeScene = this;
+		ensureAttackAudioReady();
 		this.boardGroup = this.add.group();
 		this.unitGroup = this.add.group();
 		this.fxGroup = this.add.group();
@@ -850,10 +1168,6 @@ class BattleScene extends Phaser.Scene {
 					if (!gameState.canAct || this.isMovementAnimating) {
 						return;
 					}
-					gameState.selectedEnemyId = null;
-					gameState.selectedEnemyAbility = null;
-					gameState.enemyAbilityPinned = false;
-					gameState.openedEnemyAbilityInfo = null;
 					const fromRow = gameState.playerPos.row;
 					const fromCol = gameState.playerPos.col;
 					resolvePlayerMove(row, col);
@@ -915,6 +1229,18 @@ class BattleScene extends Phaser.Scene {
 					return;
 				}
 				if (gameState.canAct && gameState.selectedUnit === "player" && gameState.abilityPinned) {
+					gameState.selectedEnemyId = enemy.id;
+					gameState.selectedEnemyAbility = null;
+					gameState.enemyAbilityPinned = false;
+					gameState.openedEnemyAbilityInfo = null;
+					gameState.hoveredEntity = { kind: null, id: null };
+					this.setAbilityHoverPulse(0, 0, false);
+					if (this.attackHintGroup) {
+						this.attackHintGroup.clear(true, true);
+					}
+					if (this.rangeHintGroup) {
+						this.rangeHintGroup.clear(true, true);
+					}
 					resolvePlayerAttack(enemy);
 					renderHud();
 					this.requestBoardRedraw();
@@ -923,10 +1249,17 @@ class BattleScene extends Phaser.Scene {
 				if (!enemy.alive) {
 					return;
 				}
-				gameState.selectedEnemyId = enemy.id;
-				gameState.selectedEnemyAbility = null;
-				gameState.enemyAbilityPinned = false;
-				gameState.openedEnemyAbilityInfo = null;
+				if (gameState.selectedEnemyId === enemy.id) {
+					gameState.selectedEnemyId = null;
+					gameState.selectedEnemyAbility = null;
+					gameState.enemyAbilityPinned = false;
+					gameState.openedEnemyAbilityInfo = null;
+				} else {
+					gameState.selectedEnemyId = enemy.id;
+					gameState.selectedEnemyAbility = null;
+					gameState.enemyAbilityPinned = false;
+					gameState.openedEnemyAbilityInfo = null;
+				}
 				gameState.selectedUnit = null;
 				renderHud();
 				this.requestBoardRedraw();
@@ -971,10 +1304,24 @@ class BattleScene extends Phaser.Scene {
 				if (!gameState.canAct || gameState.gameOver || gameState.victory || this.isMovementAnimating) {
 					return;
 				}
-				gameState.selectedEnemyId = null;
-				gameState.selectedEnemyAbility = null;
-				gameState.enemyAbilityPinned = false;
-				gameState.openedEnemyAbilityInfo = null;
+				if (
+					gameState.selectedUnit === "player"
+					&& gameState.abilityPinned
+					&& gameState.selectedAbility === "special1"
+					&& typeof resolvePlayerSelfCastAbility === "function"
+				) {
+					this.setAbilityHoverPulse(0, 0, false);
+					if (this.attackHintGroup) {
+						this.attackHintGroup.clear(true, true);
+					}
+					if (this.rangeHintGroup) {
+						this.rangeHintGroup.clear(true, true);
+					}
+					resolvePlayerSelfCastAbility();
+					renderHud();
+					this.requestBoardRedraw();
+					return;
+				}
 				gameState.selectedUnit = gameState.selectedUnit === "player" ? null : "player";
 				renderHud();
 				this.requestBoardRedraw();
@@ -1023,7 +1370,7 @@ class BattleScene extends Phaser.Scene {
 
 			const origins = [{ row: hoveredEnemy.row, col: hoveredEnemy.col }, ...moveTiles];
 			for (const abilityKey of hoveredEnemy.abilities || []) {
-				const def = enemyAbilityDefs[abilityKey];
+				const def = getEnemyAbilityDef(hoveredEnemy, abilityKey);
 				if (!def) {
 					continue;
 				}
@@ -1065,6 +1412,10 @@ class BattleScene extends Phaser.Scene {
 			// Show attack tiles only from current position
 			const playerAttackTiles = collectAttackTiles([{ row: gameState.playerPos.row, col: gameState.playerPos.col }], band);
 			for (const tile of playerAttackTiles) {
+				// Skip drawing red dot on the hovered enemy tile - damage number will replace it
+				if (hoveredEnemyIsCurrentlyAttackable && tile.row === hoveredEnemy.row && tile.col === hoveredEnemy.col) {
+					continue;
+				}
 				const cx = GRID_X + tile.col * TILE_SIZE + TILE_SIZE / 2;
 				const cy = GRID_Y + tile.row * TILE_SIZE + TILE_SIZE / 2;
 				const dot = this.add.circle(cx, cy, 5, 0xff6464, 0.95);
@@ -1074,7 +1425,10 @@ class BattleScene extends Phaser.Scene {
 			}
 
 			if (hoveredEnemy && hoveredEnemyIsCurrentlyAttackable) {
-				this.setAbilityHoverPulse(hoveredEnemy.row, hoveredEnemy.col, true);
+				const basePower = getConfiguredAbilityPower(gameState.player, abilityPreviewKey);
+				const scaledPower = getPlayerScaledPower(basePower);
+				const damage = computeDamage(hoveredEnemy.defense, scaledPower);
+				this.setAbilityHoverPulse(hoveredEnemy.row, hoveredEnemy.col, true, damage);
 			} else {
 				this.setAbilityHoverPulse(0, 0, false);
 			}

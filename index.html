@@ -7,14 +7,20 @@
 	<link rel="stylesheet" href="style..css" />
 </head>
 <body>
-	<div id="hud">
-		<h1>Tile Tactics Prototype</h1>
-		<div id="stats"></div>
-		<div id="abilities"></div>
+	<div id="hud-player" class="hud-panel">
+		<h1>Character</h1>
+		<div id="player-stats"></div>
+		<div id="player-abilities" class="abilities-panel"></div>
 		<div id="message"></div>
 	</div>
 
 	<div id="game-root"></div>
+
+	<div id="hud-enemy" class="hud-panel">
+		<h1>Enemy</h1>
+		<div id="enemy-stats"></div>
+		<div id="enemy-abilities" class="abilities-panel"></div>
+	</div>
 
 	<div id="levelup-modal" class="hidden">
 		<div class="panel">

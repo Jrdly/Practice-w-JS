@@ -1,6 +1,8 @@
 const ui = {
-	stats: document.getElementById("stats"),
-	abilities: document.getElementById("abilities"),
+	playerStats: document.getElementById("player-stats"),
+	playerAbilities: document.getElementById("player-abilities"),
+	enemyStats: document.getElementById("enemy-stats"),
+	enemyAbilities: document.getElementById("enemy-abilities"),
 	message: document.getElementById("message"),
 	levelupModal: document.getElementById("levelup-modal"),
 	levelupText: document.getElementById("levelup-text"),
@@ -17,6 +19,7 @@ const ui = {
 };
 
 let lastHudSignature = null;
+const hpBarStateByKey = {};
 
 function buildHudSignature() {
 	const p = gameState.player;
@@ -34,7 +37,6 @@ function buildHudSignature() {
 				id: inspectionEnemy.id,
 				hp: Math.floor(inspectionEnemy.hp),
 				maxHp: Math.floor(inspectionEnemy.maxHp),
-				attack: inspectionEnemy.attack,
 				defense: inspectionEnemy.defense,
 				abilities: inspectionEnemy.abilities || [],
 			}
@@ -75,13 +77,15 @@ function getEnemySummary(enemy) {
 		return null;
 	}
 	const abilityNames = (enemy.abilities || [])
-		.map((key) => enemyAbilityDefs[key]?.name)
+		.map((key) => {
+			const def = typeof getEnemyAbilityDef === "function" ? getEnemyAbilityDef(enemy, key) : null;
+			return def?.name;
+		})
 		.filter(Boolean);
 	return {
-		name: template.name,
+		name: enemy.name || template.name,
 		hp: enemy.hp,
 		maxHp: enemy.maxHp,
-		attack: enemy.attack,
 		defense: enemy.defense,
 		abilities: abilityNames,
 	};
@@ -109,6 +113,22 @@ function getInspectionTarget() {
 	return null;
 }
 
+function getEnemyPanelTarget() {
+	if (gameState.hoveredEntity.kind === "enemy") {
+		const hoveredEnemy = gameState.enemies.find((e) => e.id === gameState.hoveredEntity.id && e.alive);
+		if (hoveredEnemy) {
+			return hoveredEnemy;
+		}
+	}
+	if (gameState.selectedEnemyId) {
+		const selectedEnemy = gameState.enemies.find((e) => e.id === gameState.selectedEnemyId && e.alive);
+		if (selectedEnemy) {
+			return selectedEnemy;
+		}
+	}
+	return null;
+}
+
 function setMessage(text, tone = "neutral") {
 	ui.message.textContent = text;
 	if (tone === "danger") {
@@ -124,6 +144,9 @@ function getAbilityRangeLabel(def) {
 	if (!def) {
 		return "Unknown";
 	}
+	if (def.rangeType === "self") {
+		return "Self";
+	}
 	if (def.rangeType === "melee") {
 		return "Melee (adjacent)";
 	}
@@ -132,11 +155,71 @@ function getAbilityRangeLabel(def) {
 	return `Ranged (${minRange}-${maxRange} tiles)`;
 }
 
-function getDisplayedPlayerAbilityDamage(basePower) {
+function getDisplayedPlayerAbilityDamage(abilityKey, fallbackPower) {
+	const basePower = typeof getConfiguredAbilityPower === "function"
+		? getConfiguredAbilityPower(gameState.player, abilityKey)
+		: fallbackPower;
 	const multiplier = typeof gameState.player?.damageMultiplier === "number" && !Number.isNaN(gameState.player.damageMultiplier)
 		? gameState.player.damageMultiplier
 		: 1;
 	return Math.max(1, Math.round(basePower * multiplier));
+}
+
+function getHpBarMarkup(currentHp, maxHp, key) {
+	const safeMax = Math.max(1, Math.floor(maxHp));
+	const safeCurrent = Math.max(0, Math.min(safeMax, Math.floor(currentHp)));
+	const targetPct = Math.max(0, Math.min(100, (safeCurrent / safeMax) * 100));
+	if (!hpBarStateByKey[key]) {
+		hpBarStateByKey[key] = { displayedPct: targetPct, targetPct };
+	} else {
+		hpBarStateByKey[key].targetPct = targetPct;
+	}
+	const displayedPct = hpBarStateByKey[key].displayedPct;
+	return [
+		'<div class="hp-bar-wrap" role="img" aria-label="HP bar">',
+		`<div class="hp-bar-fill" data-hp-key="${key}" data-hp-target="${targetPct}" style="width: ${displayedPct}%;"></div>`,
+		`<div class="hp-bar-label">${safeCurrent} / ${safeMax}</div>`,
+		"</div>",
+	].join("");
+}
+
+function animateHpBars(root) {
+	if (!root) {
+		return;
+	}
+	const fills = root.querySelectorAll(".hp-bar-fill[data-hp-target]");
+	for (const fill of fills) {
+		const key = fill.getAttribute("data-hp-key");
+		const target = Number(fill.getAttribute("data-hp-target"));
+		if (!key || Number.isNaN(target)) {
+			continue;
+		}
+		const state = hpBarStateByKey[key] || { displayedPct: target, targetPct: target };
+		hpBarStateByKey[key] = state;
+
+		const settleState = () => {
+			state.displayedPct = target;
+			state.targetPct = target;
+			fill.removeAttribute("data-hp-target");
+		};
+
+		if (Math.abs(state.displayedPct - target) < 0.01) {
+			settleState();
+			continue;
+		}
+
+		// Paint the previous width first, then apply the target width on the next frame.
+		// This prevents occasional instant jumps when the DOM was just re-rendered.
+		fill.style.width = `${state.displayedPct}%`;
+		void fill.offsetWidth;
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				fill.style.width = `${target}%`;
+				fill.addEventListener("transitionend", settleState, { once: true });
+				setTimeout(settleState, 320);
+			});
+		});
+	}
 }
 
 function applyTurnLockedControlVisuals() {
@@ -150,6 +233,46 @@ function getCurrentXpLabel() {
 	return `${p.xpCurrent} / ${nextThreshold}`;
 }
 
+function getXpBarMarkup(currentXp, nextThreshold) {
+	const isMax = nextThreshold === "MAX";
+	const maxValue = isMax ? Math.max(1, currentXp) : Math.max(1, Math.floor(nextThreshold));
+	const safeCurrent = Math.max(0, Math.min(maxValue, Math.floor(currentXp)));
+	const pct = isMax ? 100 : Math.max(0, Math.min(100, (safeCurrent / maxValue) * 100));
+	const label = isMax ? `${Math.floor(currentXp)} / MAX` : `${safeCurrent} / ${maxValue}`;
+	return [
+		'<div class="xp-bar-wrap" role="img" aria-label="XP bar">',
+		`<div class="xp-bar-fill" style="width: ${pct}%;"></div>`,
+		`<div class="xp-bar-label">${label}</div>`,
+		"</div>",
+	].join("");
+}
+
+function getDefenseShieldsMarkup(defensePct) {
+	const numericDefense = Number(defensePct);
+	const clamped = Math.max(0, Math.min(100, Number.isFinite(numericDefense) ? numericDefense : 0));
+	const label = Number.isInteger(clamped) ? `${clamped}% DEF` : `${clamped.toFixed(1)}% DEF`;
+	const shields = [];
+	for (let index = 0; index < 10; index += 1) {
+		const valueInShield = Math.max(0, Math.min(10, clamped - index * 10));
+		const fillPct = valueInShield * 10;
+		shields.push(
+			[
+				'<svg class="def-shield" viewBox="0 0 100 100" aria-hidden="true" focusable="false">',
+				'<polygon class="def-shield-base" points="50,0 93,17 93,62 50,100 7,62 7,17"></polygon>',
+				`<polygon class="def-shield-fill" points="50,0 93,17 93,62 50,100 7,62 7,17" style="clip-path: inset(0 ${100 - fillPct}% 0 0);"></polygon>`,
+				'<polygon class="def-shield-outline" points="50,0 93,17 93,62 50,100 7,62 7,17"></polygon>',
+				'</svg>',
+			].join(""),
+		);
+	}
+	return [
+		'<div class="def-meter" role="img" aria-label="Defense shield meter">',
+		`<div class="def-shields">${shields.join("")}</div>`,
+		`<div class="def-meter-label">${label}</div>`,
+		"</div>",
+	].join("");
+}
+
 function showMatchResultModal(outcome) {
 	if (!ui.resultModal) {
 		return;
@@ -157,12 +280,22 @@ function showMatchResultModal(outcome) {
 	if (outcome === "defeat") {
 		ui.resultTitle.textContent = "DEFEATED";
 		ui.resultTitle.style.color = "#ffb4a5";
-		ui.resultText.textContent = `XP so far: ${getCurrentXpLabel()}`;
+		const p = gameState.player;
+		const nextThreshold = p.thresholdIndex < p.xpThresholds.length ? p.xpThresholds[p.thresholdIndex] : "MAX";
+		ui.resultText.innerHTML = [
+			"<div>XP so far:</div>",
+			getXpBarMarkup(p.xpCurrent, nextThreshold),
+		].join("");
 		ui.resultClose.textContent = "Restart";
 	} else {
 		ui.resultTitle.textContent = "VICTORY";
 		ui.resultTitle.style.color = "#b7d98f";
-		ui.resultText.textContent = `XP so far: ${getCurrentXpLabel()}`;
+		const p = gameState.player;
+		const nextThreshold = p.thresholdIndex < p.xpThresholds.length ? p.xpThresholds[p.thresholdIndex] : "MAX";
+		ui.resultText.innerHTML = [
+			"<div>XP so far:</div>",
+			getXpBarMarkup(p.xpCurrent, nextThreshold),
+		].join("");
 		ui.resultClose.textContent = "Continue";
 	}
 	ui.resultModal.classList.remove("hidden");
@@ -202,36 +335,39 @@ function renderHud() {
 
 	const nextThreshold = p.thresholdIndex < p.xpThresholds.length ? p.xpThresholds[p.thresholdIndex] : "MAX";
 	const inspection = getInspectionTarget();
+	const inspectedEnemy = getEnemyPanelTarget();
 	const isPlayerSelected = gameState.selectedUnit === "player";
 
-	if (inspection?.kind === "player") {
-		ui.stats.innerHTML = [
-			`<div><strong>${p.name}</strong> Lv ${p.level}</div>`,
-			`<div>HP: ${Math.floor(p.hp)} / ${Math.floor(p.maxHp)}</div>`,
-			`<div>DEF: ${p.defense}%</div>`,
-			`<div>XP: ${p.xpCurrent} / ${nextThreshold}</div>`,
-		].join("");
-	} else if (inspection?.kind === "enemy") {
-		const enemy = getEnemySummary(inspection.enemy);
-		ui.stats.innerHTML = [
-			`<div><strong>${enemy.name} Enemy</strong></div>`,
-			`<div>HP: ${Math.floor(enemy.hp)} / ${Math.floor(enemy.maxHp)}</div>`,
-			`<div>DEF: ${enemy.defense}%</div>`,
-		].join("");
-	} else {
-		ui.stats.innerHTML = [
-			"<div><strong>No Unit Selected</strong></div>",
-			"<div>Click your character to select them.</div>",
-			"<div>Hover any unit to inspect stats and abilities.</div>",
-		].join("");
-	}
+	ui.playerStats.innerHTML = [
+		`<div><strong>${p.name}</strong> Lv ${p.level}</div>`,
+		`<div>${getHpBarMarkup(p.hp, p.maxHp, "player")}</div>`,
+		`<div>${getDefenseShieldsMarkup(p.defense)}</div>`,
+		`<div>${getXpBarMarkup(p.xpCurrent, nextThreshold)}</div>`,
+	].join("");
 
-	ui.abilities.innerHTML = "";
-	if (inspection?.kind === "enemy") {
-		const enemy = inspection.enemy;
+	ui.enemyStats.innerHTML = inspectedEnemy
+		? (() => {
+			const enemy = getEnemySummary(inspectedEnemy);
+			return [
+				`<div><strong>${enemy.name}</strong></div>`,
+				`<div>${getHpBarMarkup(enemy.hp, enemy.maxHp, `enemy-${inspectedEnemy.id}`)}</div>`,
+				`<div>${getDefenseShieldsMarkup(enemy.defense)}</div>`,
+			].join("");
+		})()
+		: [
+			"<div><strong>No Enemy Selected</strong></div>",
+			"<div>Hover or click an enemy to inspect.</div>",
+		].join("");
+
+	animateHpBars(ui.playerStats);
+	animateHpBars(ui.enemyStats);
+
+	ui.enemyAbilities.innerHTML = "";
+	if (inspectedEnemy) {
+		const enemy = inspectedEnemy;
 		const enemyAbilities = enemy.abilities || [];
 		for (const abilityKey of enemyAbilities) {
-			const def = enemyAbilityDefs[abilityKey];
+			const def = typeof getEnemyAbilityDef === "function" ? getEnemyAbilityDef(enemy, abilityKey) : null;
 			if (!def) {
 				continue;
 			}
@@ -261,6 +397,9 @@ function renderHud() {
 				if (gameState.enemyAbilityPinned) {
 					if (gameState.selectedEnemyAbility === abilityKey) {
 						gameState.enemyAbilityPinned = false;
+					} else {
+						gameState.selectedEnemyAbility = abilityKey;
+						gameState.enemyAbilityPinned = true;
 					}
 				} else {
 					gameState.selectedEnemyAbility = abilityKey;
@@ -290,20 +429,22 @@ function renderHud() {
 				wrapper.appendChild(details);
 			}
 
-			ui.abilities.appendChild(wrapper);
+			ui.enemyAbilities.appendChild(wrapper);
 		}
 		if (enemyAbilities.length === 0) {
 			const btn = document.createElement("button");
 			btn.textContent = "No enemy abilities";
 			btn.disabled = true;
-			ui.abilities.appendChild(btn);
+			ui.enemyAbilities.appendChild(btn);
 		}
-		ui.endTurn.disabled = !gameState.canAct || gameState.gameOver || gameState.victory;
-		ui.undoMove.disabled = !gameState.canAct || gameState.gameOver || gameState.victory || !gameState.movedThisTurn;
-		applyTurnLockedControlVisuals();
-		return;
+	} else {
+		const btn = document.createElement("button");
+		btn.textContent = "No enemy abilities";
+		btn.disabled = true;
+		ui.enemyAbilities.appendChild(btn);
 	}
 
+	ui.playerAbilities.innerHTML = "";
 	for (const abilityKey of ["basic", "special1", "special2", "ultimate"]) {
 		const def = abilityDefs[abilityKey];
 		const wrapper = document.createElement("div");
@@ -320,7 +461,15 @@ function renderHud() {
 		const unlocked = p.unlockedAbilities.includes(abilityKey);
 		const cd = p.cooldowns[abilityKey] || 0;
 		const onCd = cd > 0;
-		btn.textContent = `${def.name}${onCd ? ` (${cd})` : ""}`;
+		if (onCd) {
+			btn.textContent = def.name;
+			const cdBadge = document.createElement("span");
+			cdBadge.className = "ability-cooldown";
+			cdBadge.textContent = cd;
+			btn.appendChild(cdBadge);
+		} else {
+			btn.textContent = def.name;
+		}
 		btn.disabled = !unlocked || onCd || !gameState.canAct || gameState.gameOver || gameState.victory || !isPlayerSelected;
 		toggle.disabled = !unlocked;
 
@@ -346,6 +495,9 @@ function renderHud() {
 			if (gameState.abilityPinned) {
 				if (gameState.selectedAbility === abilityKey) {
 					gameState.abilityPinned = false;
+				} else {
+					gameState.selectedAbility = abilityKey;
+					gameState.abilityPinned = true;
 				}
 			} else {
 				gameState.selectedAbility = abilityKey;
@@ -370,17 +522,21 @@ function renderHud() {
 		if (shouldShowDetails) {
 			const details = document.createElement("div");
 			details.className = "ability-dropdown";
-			const shownDamage = getDisplayedPlayerAbilityDamage(def.power);
+			const shownDamage = getDisplayedPlayerAbilityDamage(abilityKey, def.power);
+			const damageLabel = shownDamage > 0 ? String(shownDamage) : "Utility";
+			const configuredCooldown = typeof getConfiguredAbilityCooldownTurns === "function"
+				? getConfiguredAbilityCooldownTurns(p, abilityKey)
+				: (def.cooldownTurns || 0);
 			details.innerHTML = [
 				`<div><strong>Description:</strong> ${def.description || "No description yet."}</div>`,
-				`<div><strong>Damage:</strong> ${shownDamage}</div>`,
+				`<div><strong>Damage:</strong> ${damageLabel}</div>`,
 				`<div><strong>Range:</strong> ${getAbilityRangeLabel(def)}</div>`,
-				`<div><strong>Cooldown:</strong> ${def.cooldownTurns} turn${def.cooldownTurns === 1 ? "" : "s"}</div>`,
+				`<div><strong>Cooldown:</strong> ${configuredCooldown} turn${configuredCooldown === 1 ? "" : "s"}</div>`,
 			].join("");
 			wrapper.appendChild(details);
 		}
 
-		ui.abilities.appendChild(wrapper);
+		ui.playerAbilities.appendChild(wrapper);
 	}
 
 	ui.endTurn.disabled = !gameState.canAct || gameState.gameOver || gameState.victory;
@@ -429,7 +585,9 @@ ui.abilityUpgrade.addEventListener("click", () => {
 		return;
 	}
 	p.unlockedAbilities.push(next);
-	p.cooldowns[next] = abilityDefs[next].cooldownTurns;
+	p.cooldowns[next] = typeof getConfiguredAbilityCooldownTurns === "function"
+		? getConfiguredAbilityCooldownTurns(p, next)
+		: (abilityDefs[next].cooldownTurns || 0);
 	renderHud();
 	setMessage(`${abilityDefs[next].name} unlocked.`, "ok");
 	closeLevelUpModal();

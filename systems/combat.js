@@ -1,4 +1,4 @@
-function computeDamage(attackerAttack, targetDefense, power) {
+function computeDamage(targetDefense, power) {
 	const rawDamage = power;
 	const defensePct = Math.max(0, Math.min(95, targetDefense)) / 100;
 	const reducedDamage = rawDamage * (1 - defensePct);
@@ -27,6 +27,10 @@ function canHitTargetWithAbility(abilityKey, enemy) {
 		return isOrthAdjacent && dist === 1;
 	}
 
+	if (def.rangeType === "self") {
+		return false;
+	}
+
 	const minRange = def.minRange || 2;
 	const maxRange = def.maxRange || def.range || 4;
 	return dist >= minRange && dist <= maxRange;
@@ -37,14 +41,20 @@ function getEnemyBasicAbilityDef(enemy) {
 		return null;
 	}
 	const basicKey = (enemy.abilities || []).find((key) => key.startsWith("basic"));
-	if (basicKey && enemyAbilityDefs[basicKey]) {
-		return enemyAbilityDefs[basicKey];
+	if (basicKey) {
+		const basicDef = typeof getEnemyAbilityDef === "function" ? getEnemyAbilityDef(enemy, basicKey) : null;
+		if (basicDef) {
+			return basicDef;
+		}
 	}
 
 	const type = enemyTypes[enemy.type];
 	const fallbackBasic = (type?.abilities || []).find((key) => key.startsWith("basic"));
-	if (fallbackBasic && enemyAbilityDefs[fallbackBasic]) {
-		return enemyAbilityDefs[fallbackBasic];
+	if (fallbackBasic) {
+		const fallbackDef = typeof getEnemyAbilityDef === "function" ? getEnemyAbilityDef(enemy, fallbackBasic) : null;
+		if (fallbackDef) {
+			return fallbackDef;
+		}
 	}
 
 	return null;
@@ -87,6 +97,155 @@ function canPlayerBasicHitEnemy(enemy) {
 	return dist >= minRange && dist <= maxRange;
 }
 
+function shakeOnHit(duration = 120, intensity = 0.0045) {
+	const scene = gameState.activeScene;
+	if (!scene || !scene.cameras || !scene.cameras.main) {
+		return;
+	}
+	scene.cameras.main.shake(duration, intensity);
+}
+
+function playAttackHitSfx(attacker) {
+	if (typeof playAttackSfx !== "function") {
+		return;
+	}
+	playAttackSfx(attacker);
+}
+
+function getEnemiesInAoeRadius(centerRow, centerCol, radius) {
+	const safeRadius = Math.max(0, Math.floor(radius || 0));
+	return gameState.enemies.filter((enemy) => {
+		if (!enemy.alive) {
+			return false;
+		}
+		const rowDelta = Math.abs(enemy.row - centerRow);
+		const colDelta = Math.abs(enemy.col - centerCol);
+		return rowDelta <= safeRadius && colDelta <= safeRadius;
+	});
+}
+
+function getEnemyDebuff(enemyId) {
+	if (!gameState.enemyDebuffsById) {
+		gameState.enemyDebuffsById = {};
+	}
+	if (!gameState.enemyDebuffsById[enemyId]) {
+		gameState.enemyDebuffsById[enemyId] = { gravityTurns: 0 };
+	}
+	return gameState.enemyDebuffsById[enemyId];
+}
+
+function getEffectiveEnemyMoveBudget(enemy) {
+	const base = Math.max(1, Math.floor(enemy.moveBudget || 1));
+	const debuff = getEnemyDebuff(enemy.id);
+	if ((debuff.gravityTurns || 0) > 0) {
+		return 1;
+	}
+	return base;
+}
+
+function applyGravityField(centerRow, centerCol, radius, durationTurns) {
+	const affectedEnemies = getEnemiesInAoeRadius(centerRow, centerCol, radius);
+	const turns = Math.max(1, Math.floor(durationTurns || 1));
+	for (const enemy of affectedEnemies) {
+		const debuff = getEnemyDebuff(enemy.id);
+		debuff.gravityTurns = Math.max(debuff.gravityTurns || 0, turns);
+	}
+	return affectedEnemies.length;
+}
+
+function addFireZone(centerRow, centerCol, radius, tickDamage, durationTurns) {
+	if (!Array.isArray(gameState.fireZones)) {
+		gameState.fireZones = [];
+	}
+	gameState.fireZones.push({
+		centerRow,
+		centerCol,
+		radius: Math.max(0, Math.floor(radius || 0)),
+		tickDamage: Math.max(1, Math.floor(tickDamage || 1)),
+		turnsRemaining: Math.max(1, Math.floor(durationTurns || 1)),
+	});
+}
+
+function tickFireZonesAtEnemyTurnStart() {
+	if (!Array.isArray(gameState.fireZones) || gameState.fireZones.length === 0) {
+		return { damage: 0, defeated: 0 };
+	}
+
+	let totalDamage = 0;
+	let totalDefeated = 0;
+
+	for (const zone of gameState.fireZones) {
+		const targets = getEnemiesInAoeRadius(zone.centerRow, zone.centerCol, zone.radius);
+		for (const enemy of targets) {
+			enemy.hp -= zone.tickDamage;
+			totalDamage += zone.tickDamage;
+			showFloatingDamageAt(enemy.row, enemy.col, zone.tickDamage);
+			if (enemy.hp <= 0) {
+				enemy.alive = false;
+				enemy.hp = 0;
+				totalDefeated += 1;
+				if (gameState.selectedEnemyId === enemy.id) {
+					gameState.selectedEnemyId = null;
+					gameState.selectedEnemyAbility = null;
+					gameState.enemyAbilityPinned = false;
+					gameState.openedEnemyAbilityInfo = null;
+				}
+				gainXp(enemy.killXp);
+			}
+		}
+		zone.turnsRemaining -= 1;
+	}
+
+	gameState.fireZones = gameState.fireZones.filter((zone) => zone.turnsRemaining > 0);
+	return { damage: totalDamage, defeated: totalDefeated };
+}
+
+function decrementStatusesAtEnemyTurnEnd() {
+	if (gameState.playerStatus) {
+		gameState.playerStatus.evadeTurns = Math.max(0, (gameState.playerStatus.evadeTurns || 0) - 1);
+		gameState.playerStatus.tauntTurns = Math.max(0, (gameState.playerStatus.tauntTurns || 0) - 1);
+	}
+
+	for (const debuff of Object.values(gameState.enemyDebuffsById || {})) {
+		debuff.gravityTurns = Math.max(0, (debuff.gravityTurns || 0) - 1);
+	}
+}
+
+function resolvePlayerSelfCastAbility() {
+	if (!gameState.canAct || gameState.gameOver || gameState.victory) {
+		return;
+	}
+	if (gameState.selectedUnit !== "player") {
+		setMessage("Select your character before using that ability.", "danger");
+		return;
+	}
+
+	const abilityKey = gameState.selectedAbility;
+	if (abilityKey !== "special1") {
+		setMessage("That ability requires a target.", "danger");
+		return;
+	}
+
+	const p = gameState.player;
+	if (!p.unlockedAbilities.includes(abilityKey)) {
+		setMessage("That ability is still locked.", "danger");
+		return;
+	}
+	if ((p.cooldowns[abilityKey] || 0) > 0) {
+		setMessage("That ability is on cooldown.", "danger");
+		return;
+	}
+
+	const def = abilityDefs[abilityKey];
+	const duration = Math.max(1, Math.floor(def.durationTurns || 1));
+	gameState.playerStatus.evadeTurns = duration;
+	gameState.playerStatus.tauntTurns = duration;
+
+	decrementCooldowns(abilityKey);
+	applyAbilityCooldown(abilityKey);
+	beginEnemyPhase(`${def.name} activated. Leon will evade attacks and taunt enemies this turn.`, abilityKey);
+}
+
 function resolvePlayerAttack(enemy) {
 	if (!gameState.canAct || gameState.gameOver || gameState.victory) {
 		return;
@@ -108,15 +267,56 @@ function resolvePlayerAttack(enemy) {
 		return;
 	}
 
+	if (abilityKey === "special1") {
+		setMessage("Evade + Taunt is self-cast. Click Leon to activate it.");
+		return;
+	}
+
 	if (!canHitTargetWithAbility(abilityKey, enemy)) {
 		setMessage("Target is out of range for selected ability.", "danger");
 		return;
 	}
 
 	const def = abilityDefs[abilityKey];
-	const damage = computeDamage(p.attack, enemy.defense, getPlayerScaledPower(def.power));
+
+	if (abilityKey === "special2") {
+		const affectedCount = applyGravityField(
+			enemy.row,
+			enemy.col,
+			Math.max(0, Math.floor(def.radius || 2)),
+			Math.max(1, Math.floor(def.durationTurns || 2)),
+		);
+		decrementCooldowns(abilityKey);
+		applyAbilityCooldown(abilityKey);
+		beginEnemyPhase(`${def.name} locked ${affectedCount} enemy${affectedCount === 1 ? "" : "ies"} to 1-tile movement.`, abilityKey);
+		return;
+	}
+
+	if (abilityKey === "ultimate") {
+		const fireDamage = typeof getConfiguredAbilityPower === "function"
+			? getConfiguredAbilityPower(p, abilityKey)
+			: def.power;
+		addFireZone(
+			enemy.row,
+			enemy.col,
+			Math.max(0, Math.floor(def.radius || 2)),
+			fireDamage,
+			Math.max(1, Math.floor(def.durationTurns || 5)),
+		);
+		decrementCooldowns(abilityKey);
+		applyAbilityCooldown(abilityKey);
+		beginEnemyPhase(`${def.name} ignites the area. Enemies inside will burn each enemy turn.`, abilityKey);
+		return;
+	}
+
+	const basePower = typeof getConfiguredAbilityPower === "function"
+		? getConfiguredAbilityPower(p, abilityKey)
+		: def.power;
+	const damage = computeDamage(enemy.defense, getPlayerScaledPower(basePower));
 	enemy.hp -= damage;
 	showFloatingDamageAt(enemy.row, enemy.col, damage);
+	shakeOnHit();
+	playAttackHitSfx("player");
 	gainXp(xpForDamage(damage));
 
 	let msg = `${def.name} hit ${enemy.type} enemy for ${damage}.`;
@@ -182,11 +382,17 @@ function resolvePlayerAttack(enemy) {
 	if (enemy.alive && canEnemyBasicHitPlayer(enemy)) {
 		setTimeout(() => {
 			const enemyBasic = getEnemyBasicAbilityDef(enemy);
-			const basicDamage = computeDamage(enemy.attack, gameState.player.defense, enemyBasic.power);
+			const basicDamage = computeDamage(gameState.player.defense, enemyBasic.power);
 			const counterDamage = Math.floor(basicDamage / 2);
-			gameState.player.hp -= counterDamage;
-			showFloatingDamageAt(gameState.playerPos.row, gameState.playerPos.col, counterDamage);
-			msg += ` Counterattack dealt ${counterDamage}.`;
+			const evadeActive = (gameState.playerStatus?.evadeTurns || 0) > 0;
+			const appliedCounterDamage = evadeActive ? 0 : counterDamage;
+			gameState.player.hp -= appliedCounterDamage;
+			if (appliedCounterDamage > 0) {
+				showFloatingDamageAt(gameState.playerPos.row, gameState.playerPos.col, appliedCounterDamage);
+			}
+			shakeOnHit();
+			playAttackHitSfx("enemy");
+			msg += evadeActive ? " Counterattack was evaded." : ` Counterattack dealt ${appliedCounterDamage}.`;
 			renderHud();
 			if (gameState.activeScene) {
 				gameState.activeScene.requestBoardRedraw();
@@ -212,7 +418,7 @@ function getBestEnemyAbilityInRange(enemy) {
 	let best = null;
 
 	for (const abilityKey of enemy.abilities || []) {
-		const def = enemyAbilityDefs[abilityKey];
+		const def = typeof getEnemyAbilityDef === "function" ? getEnemyAbilityDef(enemy, abilityKey) : null;
 		if (!def) {
 			continue;
 		}
@@ -249,10 +455,20 @@ function runEnemyTurn() {
 		return;
 	}
 
+	const fireTick = tickFireZonesAtEnemyTurnStart();
+	if (fireTick.damage > 0) {
+		renderHud();
+		if (gameState.activeScene) {
+			gameState.activeScene.requestBoardRedraw();
+		}
+	}
+
 	const actingEnemies = gameState.enemies.filter((enemy) => enemy.alive);
 	let totalDamage = 0;
 
 	function finalizeEnemyTurn() {
+		decrementStatusesAtEnemyTurnEnd();
+
 		if (gameState.player.hp <= 0) {
 			gameState.player.hp = 0;
 			gameState.gameOver = true;
@@ -262,13 +478,25 @@ function runEnemyTurn() {
 			discardPendingCombatXp();
 			setMessage("Defeat. Restart level to try again.", "danger");
 			showMatchResultModal("defeat");
+		} else if (gameState.enemies.every((enemy) => !enemy.alive)) {
+			gameState.victory = true;
+			gameState.canAct = false;
+			gameState.selectedUnit = null;
+			gameState.movedThisTurn = false;
+			commitPendingCombatXp();
+			setMessage("Level clear. You defeated all enemies.", "ok");
+			saveGame();
+			setTimeout(() => {
+				renderHud();
+				if (gameState.activeScene) {
+					gameState.activeScene.requestBoardRedraw();
+				}
+				showMatchResultModal("victory");
+			}, FLOATING_DAMAGE_FADE_MS);
+			return;
 		} else {
 			gameState.canAct = true;
 			gameState.selectedUnit = null;
-			gameState.selectedEnemyId = null;
-			gameState.selectedEnemyAbility = null;
-			gameState.enemyAbilityPinned = false;
-			gameState.openedEnemyAbilityInfo = null;
 			gameState.abilityPinned = false;
 			gameState.turnStartPos = { ...gameState.playerPos };
 			gameState.movedThisTurn = false;
@@ -301,7 +529,7 @@ function runEnemyTurn() {
 		const fromCol = enemy.col;
 		const hadAbilityBeforeMove = Boolean(getBestEnemyAbilityInRange(enemy));
 		if (!hadAbilityBeforeMove) {
-			moveEnemyTowardPlayer(enemy, Math.max(1, enemy.moveBudget || 1));
+			moveEnemyTowardPlayer(enemy, getEffectiveEnemyMoveBudget(enemy));
 		}
 		const toRow = enemy.row;
 		const toCol = enemy.col;
@@ -320,10 +548,16 @@ function runEnemyTurn() {
 
 				const bestAbility = getBestEnemyAbilityInRange(enemy);
 				if (bestAbility) {
-					const dmg = computeDamage(enemy.attack, gameState.player.defense, bestAbility.power);
-					gameState.player.hp -= dmg;
-					showFloatingDamageAt(gameState.playerPos.row, gameState.playerPos.col, dmg);
-					totalDamage += dmg;
+					const dmg = computeDamage(gameState.player.defense, bestAbility.power);
+					const evadeActive = (gameState.playerStatus?.evadeTurns || 0) > 0;
+					const appliedDamage = evadeActive ? 0 : dmg;
+					gameState.player.hp -= appliedDamage;
+					if (appliedDamage > 0) {
+						showFloatingDamageAt(gameState.playerPos.row, gameState.playerPos.col, appliedDamage);
+					}
+					shakeOnHit();
+					playAttackHitSfx("enemy");
+					totalDamage += appliedDamage;
 					renderHud();
 				}
 
@@ -363,10 +597,15 @@ function runEnemyTurn() {
 				if (enemy.alive && gameState.player.hp > 0 && canPlayerBasicHitEnemy(enemy)) {
 					setTimeout(() => {
 						const counterDef = abilityDefs.basic;
-						const basicDamage = computeDamage(gameState.player.attack, enemy.defense, getPlayerScaledPower(counterDef.power));
+						const basicBasePower = typeof getConfiguredAbilityPower === "function"
+							? getConfiguredAbilityPower(gameState.player, "basic")
+							: counterDef.power;
+						const basicDamage = computeDamage(enemy.defense, getPlayerScaledPower(basicBasePower));
 						const counterDamage = Math.floor(basicDamage / 2);
 						enemy.hp -= counterDamage;
 						showFloatingDamageAt(enemy.row, enemy.col, counterDamage);
+						shakeOnHit();
+						playAttackHitSfx("player");
 						gainXp(xpForDamage(counterDamage));
 						if (enemy.hp <= 0) {
 							enemy.alive = false;
