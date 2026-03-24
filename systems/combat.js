@@ -18,7 +18,7 @@ function canHitTargetWithAbility(abilityKey, enemy) {
 		(Math.abs(gameState.playerPos.row - enemy.row) === 1 && gameState.playerPos.col === enemy.col) ||
 		(Math.abs(gameState.playerPos.col - enemy.col) === 1 && gameState.playerPos.row === enemy.row);
 
-	const def = abilityDefs[abilityKey];
+	const def = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef(abilityKey) : null;
 	if (!def) {
 		return false;
 	}
@@ -78,7 +78,7 @@ function canEnemyBasicHitPlayer(enemy) {
 }
 
 function canPlayerBasicHitEnemy(enemy) {
-	const def = abilityDefs.basic;
+	const def = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef("basic") : null;
 	if (!def || !enemy || !enemy.alive) {
 		return false;
 	}
@@ -236,7 +236,11 @@ function resolvePlayerSelfCastAbility() {
 		return;
 	}
 
-	const def = abilityDefs[abilityKey];
+	const def = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef(abilityKey, p) : null;
+	if (!def) {
+		setMessage("Ability definition missing for this character.", "danger");
+		return;
+	}
 	const duration = Math.max(1, Math.floor(def.durationTurns || 1));
 	gameState.playerStatus.evadeTurns = duration;
 	gameState.playerStatus.tauntTurns = duration;
@@ -277,7 +281,11 @@ function resolvePlayerAttack(enemy) {
 		return;
 	}
 
-	const def = abilityDefs[abilityKey];
+	const def = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef(abilityKey, p) : null;
+	if (!def) {
+		setMessage("Ability definition missing for this character.", "danger");
+		return;
+	}
 
 	if (abilityKey === "special2") {
 		const affectedCount = applyGravityField(
@@ -596,7 +604,11 @@ function runEnemyTurn() {
 				// Counterattack: defender can retaliate with basic attack only, from current position only.
 				if (enemy.alive && gameState.player.hp > 0 && canPlayerBasicHitEnemy(enemy)) {
 					setTimeout(() => {
-						const counterDef = abilityDefs.basic;
+						const counterDef = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef("basic", gameState.player) : null;
+						if (!counterDef) {
+							continueEnemyStepAfterCounterWindow();
+							return;
+						}
 						const basicBasePower = typeof getConfiguredAbilityPower === "function"
 							? getConfiguredAbilityPower(gameState.player, "basic")
 							: counterDef.power;

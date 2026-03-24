@@ -1,15 +1,16 @@
 // Character data quick template:
-// characterTemplates.<key> = {
+// charactersById.<key> = {
 //   id, name, maxHp, hp, defense, damageMultiplier, moveBudget,
 //   level, xpCurrent, xpThresholds, thresholdIndex,
 //   unlockedAbilities: ["basic", "special1", "special2", "ultimate"],
-//   abilityBasePowers: { basic, special1, special2, ultimate },
-//   abilityCooldownTurns: { basic, special1, special2, ultimate },
+//   abilityDefs: {
+//     basic/special1/special2/ultimate: { name, rangeType, minRange, maxRange, cooldownTurns, power, description, ... }
+//   },
 //   cooldowns: { special1, special2, ultimate }
 // }
 // Notes:
-// - Edit starting ability damage in abilityBasePowers.
-// - Edit per-character cooldown turns in abilityCooldownTurns.
+// - Edit ability damage in abilityDefs.<abilityKey>.power.
+// - Edit per-character cooldown turns in abilityDefs.<abilityKey>.cooldownTurns.
 
 const defaultXpThresholds = [
 	100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -20,7 +21,7 @@ const defaultXpThresholds = [
 
 // Character templates are the source-of-truth roster data.
 // New player-controlled characters can be added here without changing gameplay code.
-const characterTemplates = {
+const charactersById = {
 	leon: {
 		id: "balanced",
 		name: "Leon",
@@ -34,17 +35,46 @@ const characterTemplates = {
 		xpThresholds: [...defaultXpThresholds],
 		thresholdIndex: 0,
 		unlockedAbilities: ["basic"],
-		abilityBasePowers: {
-			basic: 15,
-			special1: 0,
-			special2: 0,
-			ultimate: 12,
-		},
-		abilityCooldownTurns: {
-			basic: 0,
-			special1: 2,
-			special2: 3,
-			ultimate: 4,
+		abilityDefs: {
+			basic: {
+				name: "Lava Eruption",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 2,
+				cooldownTurns: 0,
+				power: 12,
+				description: "A short burst of lava that erupts under the target.",
+			},
+			special1: {
+				name: "Evade + Taunt",
+				rangeType: "self",
+				cooldownTurns: 2,
+				power: 0,
+				durationTurns: 1,
+				description: "Evade all incoming damage and taunt enemies for 1 turn.",
+			},
+			special2: {
+				name: "Gravity",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 3,
+				cooldownTurns: 3,
+				power: 0,
+				durationTurns: 2,
+				radius: 2,
+				description: "Creates a gravity field: affected enemies can move at most 1 tile for 2 turns.",
+			},
+			ultimate: {
+				name: "AOE Fire",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 4,
+				cooldownTurns: 4,
+				power: 12,
+				durationTurns: 5,
+				radius: 2,
+				description: "Ignites a 2-tile radius area; enemies inside take 12 damage each enemy turn for 5 turns.",
+			},
 		},
 		cooldowns: { special1: 0, special2: 0, ultimate: 0 },
 	},
@@ -61,17 +91,46 @@ const characterTemplates = {
 		xpThresholds: [...defaultXpThresholds],
 		thresholdIndex: 0,
 		unlockedAbilities: ["basic"],
-		abilityBasePowers: {
-			basic: 20,
-			special1: 32,
-			special2: 34,
-			ultimate: 50,
-		},
-		abilityCooldownTurns: {
-			basic: 0,
-			special1: 1,
-			special2: 2,
-			ultimate: 3,
+		abilityDefs: {
+			basic: {
+				name: "Lava Eruption",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 2,
+				cooldownTurns: 0,
+				power: 12,
+				description: "A short burst of lava that erupts under the target.",
+			},
+			special1: {
+				name: "Evade + Taunt",
+				rangeType: "self",
+				cooldownTurns: 2,
+				power: 0,
+				durationTurns: 1,
+				description: "Evade all incoming damage and taunt enemies for 1 turn.",
+			},
+			special2: {
+				name: "Gravity",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 3,
+				cooldownTurns: 3,
+				power: 0,
+				durationTurns: 2,
+				radius: 2,
+				description: "Creates a gravity field: affected enemies can move at most 1 tile for 2 turns.",
+			},
+			ultimate: {
+				name: "AOE Fire",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 4,
+				cooldownTurns: 4,
+				power: 12,
+				durationTurns: 5,
+				radius: 2,
+				description: "Ignites a 2-tile radius area; enemies inside take 12 damage each enemy turn for 5 turns.",
+			},
 		},
 		cooldowns: { special1: 0, special2: 0, ultimate: 0 },
 	},
@@ -88,17 +147,46 @@ const characterTemplates = {
 		xpThresholds: [...defaultXpThresholds],
 		thresholdIndex: 0,
 		unlockedAbilities: ["basic"],
-		abilityBasePowers: {
-			basic: 16,
-			special1: 24,
-			special2: 40,
-			ultimate: 56,
-		},
-		abilityCooldownTurns: {
-			basic: 0,
-			special1: 1,
-			special2: 2,
-			ultimate: 3,
+		abilityDefs: {
+			basic: {
+				name: "Lava Eruption",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 2,
+				cooldownTurns: 0,
+				power: 12,
+				description: "A short burst of lava that erupts under the target.",
+			},
+			special1: {
+				name: "Evade + Taunt",
+				rangeType: "self",
+				cooldownTurns: 2,
+				power: 0,
+				durationTurns: 1,
+				description: "Evade all incoming damage and taunt enemies for 1 turn.",
+			},
+			special2: {
+				name: "Gravity",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 3,
+				cooldownTurns: 3,
+				power: 0,
+				durationTurns: 2,
+				radius: 2,
+				description: "Creates a gravity field: affected enemies can move at most 1 tile for 2 turns.",
+			},
+			ultimate: {
+				name: "AOE Fire",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 4,
+				cooldownTurns: 4,
+				power: 12,
+				durationTurns: 5,
+				radius: 2,
+				description: "Ignites a 2-tile radius area; enemies inside take 12 damage each enemy turn for 5 turns.",
+			},
 		},
 		cooldowns: { special1: 0, special2: 0, ultimate: 0 },
 	},
@@ -115,17 +203,46 @@ const characterTemplates = {
 		xpThresholds: [...defaultXpThresholds],
 		thresholdIndex: 0,
 		unlockedAbilities: ["basic"],
-		abilityBasePowers: {
-			basic: 19,
-			special1: 35,
-			special2: 30,
-			ultimate: 58,
-		},
-		abilityCooldownTurns: {
-			basic: 0,
-			special1: 1,
-			special2: 2,
-			ultimate: 3,
+		abilityDefs: {
+			basic: {
+				name: "Lava Eruption",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 2,
+				cooldownTurns: 0,
+				power: 12,
+				description: "A short burst of lava that erupts under the target.",
+			},
+			special1: {
+				name: "Evade + Taunt",
+				rangeType: "self",
+				cooldownTurns: 2,
+				power: 0,
+				durationTurns: 1,
+				description: "Evade all incoming damage and taunt enemies for 1 turn.",
+			},
+			special2: {
+				name: "Gravity",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 3,
+				cooldownTurns: 3,
+				power: 0,
+				durationTurns: 2,
+				radius: 2,
+				description: "Creates a gravity field: affected enemies can move at most 1 tile for 2 turns.",
+			},
+			ultimate: {
+				name: "AOE Fire",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 4,
+				cooldownTurns: 4,
+				power: 12,
+				durationTurns: 5,
+				radius: 2,
+				description: "Ignites a 2-tile radius area; enemies inside take 12 damage each enemy turn for 5 turns.",
+			},
 		},
 		cooldowns: { special1: 0, special2: 0, ultimate: 0 },
 	},
@@ -142,29 +259,61 @@ const characterTemplates = {
 		xpThresholds: [...defaultXpThresholds],
 		thresholdIndex: 0,
 		unlockedAbilities: ["basic"],
-		abilityBasePowers: {
-			basic: 18,
-			special1: 30,
-			special2: 38,
-			ultimate: 60,
-		},
-		abilityCooldownTurns: {
-			basic: 0,
-			special1: 1,
-			special2: 2,
-			ultimate: 3,
+		abilityDefs: {
+			basic: {
+				name: "Lava Eruption",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 2,
+				cooldownTurns: 0,
+				power: 12,
+				description: "A short burst of lava that erupts under the target.",
+			},
+			special1: {
+				name: "Evade + Taunt",
+				rangeType: "self",
+				cooldownTurns: 2,
+				power: 0,
+				durationTurns: 1,
+				description: "Evade all incoming damage and taunt enemies for 1 turn.",
+			},
+			special2: {
+				name: "Gravity",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 3,
+				cooldownTurns: 3,
+				power: 0,
+				durationTurns: 2,
+				radius: 2,
+				description: "Creates a gravity field: affected enemies can move at most 1 tile for 2 turns.",
+			},
+			ultimate: {
+				name: "AOE Fire",
+				rangeType: "ranged",
+				minRange: 1,
+				maxRange: 4,
+				cooldownTurns: 4,
+				power: 12,
+				durationTurns: 5,
+				radius: 2,
+				description: "Ignites a 2-tile radius area; enemies inside take 12 damage each enemy turn for 5 turns.",
+			},
 		},
 		cooldowns: { special1: 0, special2: 0, ultimate: 0 },
 	},
 };
 
-const playableCharacterIds = Object.keys(characterTemplates);
+// Backward compatibility alias while the runtime still references characterTemplates.
+const characterTemplates = charactersById;
+
+const playableCharacterIds = Object.keys(charactersById);
 
 function getCharacterTemplateById(characterId) {
-	if (!characterId || !characterTemplates[characterId]) {
-		return characterTemplates.leon;
+	if (!characterId || !charactersById[characterId]) {
+		return charactersById.leon;
 	}
-	return characterTemplates[characterId];
+	return charactersById[characterId];
 }
 
 // Backward compatibility: current game flow still reads from baseCharacter.

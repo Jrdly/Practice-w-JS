@@ -446,7 +446,10 @@ function renderHud() {
 
 	ui.playerAbilities.innerHTML = "";
 	for (const abilityKey of ["basic", "special1", "special2", "ultimate"]) {
-		const def = abilityDefs[abilityKey];
+		const def = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef(abilityKey, p) : null;
+		if (!def) {
+			continue;
+		}
 		const wrapper = document.createElement("div");
 		wrapper.className = "ability-item";
 		const row = document.createElement("div");
@@ -550,7 +553,10 @@ function showLevelUpModal() {
 	ui.levelupText.textContent = `Choose one upgrade for level ${gameState.player.level}.`;
 	ui.hpUpgrade.textContent = "+10% HP | +10% DMG";
 	ui.abilityUpgrade.disabled = !nextUnlock;
-	ui.abilityUpgrade.textContent = nextUnlock ? `Unlock ${abilityDefs[nextUnlock].name}` : "No ability unlock available";
+	const nextDef = nextUnlock && typeof getPlayerAbilityDef === "function"
+		? getPlayerAbilityDef(nextUnlock, gameState.player)
+		: null;
+	ui.abilityUpgrade.textContent = nextUnlock && nextDef ? `Unlock ${nextDef.name}` : "No ability unlock available";
 	ui.levelupModal.classList.remove("hidden");
 }
 
@@ -584,12 +590,17 @@ ui.abilityUpgrade.addEventListener("click", () => {
 	if (!next) {
 		return;
 	}
+	const nextDef = typeof getPlayerAbilityDef === "function" ? getPlayerAbilityDef(next, p) : null;
+	if (!nextDef) {
+		setMessage("Missing ability definition for this character.", "danger");
+		return;
+	}
 	p.unlockedAbilities.push(next);
 	p.cooldowns[next] = typeof getConfiguredAbilityCooldownTurns === "function"
 		? getConfiguredAbilityCooldownTurns(p, next)
-		: (abilityDefs[next].cooldownTurns || 0);
+		: (nextDef.cooldownTurns || 0);
 	renderHud();
-	setMessage(`${abilityDefs[next].name} unlocked.`, "ok");
+	setMessage(`${nextDef.name} unlocked.`, "ok");
 	closeLevelUpModal();
 });
 

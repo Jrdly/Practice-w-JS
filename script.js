@@ -135,21 +135,20 @@ function getNextUnlock(player) {
 	return null;
 }
 
-function getConfiguredAbilityCooldownTurns(player, abilityKey) {
-	const configured = player?.abilityCooldownTurns?.[abilityKey];
-	if (typeof configured === "number" && Number.isFinite(configured)) {
-		return Math.max(0, Math.floor(configured));
+function getPlayerAbilityDef(abilityKey, player = gameState.player) {
+	if (player?.abilityDefs?.[abilityKey]) {
+		return player.abilityDefs[abilityKey];
 	}
-	const defaultTurns = abilityDefs?.[abilityKey]?.cooldownTurns || 0;
+	return null;
+}
+
+function getConfiguredAbilityCooldownTurns(player, abilityKey) {
+	const defaultTurns = getPlayerAbilityDef(abilityKey, player)?.cooldownTurns || 0;
 	return Math.max(0, Math.floor(defaultTurns));
 }
 
 function getConfiguredAbilityPower(player, abilityKey) {
-	const configured = player?.abilityBasePowers?.[abilityKey];
-	if (typeof configured === "number" && Number.isFinite(configured)) {
-		return Math.max(0, Math.floor(configured));
-	}
-	const defaultPower = abilityDefs?.[abilityKey]?.power || 0;
+	const defaultPower = getPlayerAbilityDef(abilityKey, player)?.power || 0;
 	return Math.max(0, Math.floor(defaultPower));
 }
 
@@ -158,9 +157,6 @@ function getEnemyAbilityDefByType(typeKey, abilityKey) {
 	const def = type?.abilityDefs?.[abilityKey];
 	if (def) {
 		return def;
-	}
-	if (typeof enemyAbilityDefs !== "undefined" && enemyAbilityDefs?.[abilityKey]) {
-		return enemyAbilityDefs[abilityKey];
 	}
 	return null;
 }
@@ -212,20 +208,8 @@ function validateCharacterData() {
 		}
 
 		for (const abilityKey of template.unlockedAbilities || []) {
-			if (!abilityDefs[abilityKey]) {
+			if (!getPlayerAbilityDef(abilityKey, template)) {
 				warnData(`Character '${characterId}' has unknown unlocked ability '${abilityKey}'.`);
-			}
-		}
-
-		for (const abilityKey of Object.keys(template.abilityBasePowers || {})) {
-			if (!abilityDefs[abilityKey]) {
-				warnData(`Character '${characterId}' has abilityBasePowers entry for unknown ability '${abilityKey}'.`);
-			}
-		}
-
-		for (const abilityKey of Object.keys(template.abilityCooldownTurns || {})) {
-			if (!abilityDefs[abilityKey]) {
-				warnData(`Character '${characterId}' has abilityCooldownTurns entry for unknown ability '${abilityKey}'.`);
 			}
 		}
 	}
@@ -309,7 +293,7 @@ function getStartingCooldownsForUnlockedAbilities(player) {
 		if (abilityKey === "basic") {
 			continue;
 		}
-		if (!abilityDefs[abilityKey]) {
+		if (!getPlayerAbilityDef(abilityKey, player)) {
 			continue;
 		}
 		cooldowns[abilityKey] = getConfiguredAbilityCooldownTurns(player, abilityKey);
@@ -579,7 +563,10 @@ function endTurn() {
 function getPlayerMaxAttackRange() {
 	let maxRange = 1;
 	for (const abilityKey of gameState.player.unlockedAbilities) {
-		const def = abilityDefs[abilityKey];
+		const def = getPlayerAbilityDef(abilityKey);
+		if (!def) {
+			continue;
+		}
 		const range = def.rangeType === "melee" ? 1 : (def.range || 4);
 		if (range > maxRange) {
 			maxRange = range;
@@ -606,7 +593,7 @@ function getActivePlayerAbilityPreviewKey() {
 }
 
 function getPlayerAbilityRangeBand(abilityKey) {
-	const def = abilityDefs[abilityKey];
+	const def = getPlayerAbilityDef(abilityKey);
 	if (!def) {
 		return null;
 	}
@@ -626,7 +613,7 @@ function getLongestReadyRangedBand() {
 	let best = null;
 	// First, look for the longest-range ready ranged ability
 	for (const abilityKey of gameState.player.unlockedAbilities) {
-		const def = abilityDefs[abilityKey];
+		const def = getPlayerAbilityDef(abilityKey);
 		if (!def || def.rangeType !== "ranged") {
 			continue;
 		}
